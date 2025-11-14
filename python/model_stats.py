@@ -52,19 +52,18 @@ def count_flops(block, seq_len:int, batch_size:int, embed_dim:int, num_blocks:in
     
     return block_flops * num_blocks * batch_size
 
-def count_parameters(block, num_blocks:int, bytes:int=4):
+def count_parameters(block, num_blocks:int):
     '''
-    Count the number of parameters in the model and return the size in bytes.
+    Count the number of parameters in the model.
 
     Args:
         model: The PyTorch model to count parameters for.
         num_blocks: Number of blocks to multiply the parameter count.
-        bytes: Number of bytes per parameter (default is 4 for float32).
 
     Returns:
-        Total size of the model parameters in bytes.
+        Total number of parameters of the model.
     '''
-    block_size = sum(p.numel() for p in block.parameters() if p.requires_grad) * bytes
+    block_size = sum(p.numel() for p in block.parameters() if p.requires_grad)
 
     return block_size * num_blocks
 
@@ -128,17 +127,9 @@ if __name__ == "__main__":
     parser.add_argument("config_file", type=str, help="Path to JSON model configuration file")
     parser.add_argument("--batch_size", type=int, default=1, help="Batch size for testing")
     parser.add_argument("--scale_bwd_flops", type=float, default=2.0, help="Scale factor for backward FLOPs")
-    parser.add_argument("--dtype", type=str, default="float32", help="DType for model parameters [float16, float32, int8]", choices=["float16", "float32", "int8"])
+    parser.add_argument("--dtype", type=str, default="float32", help="DType for model parameters [float16, float32]", choices=["float16", "float32"])
     parser.add_argument("--device", type=str, default="cpu", help="Device to run the timing tests on ['cpu', 'cuda']")
     args = parser.parse_args()
-
-    dtype_map = {
-        "float16": 2, # bytes
-        "float32": 4,
-        "int8": 1
-    }
-
-    num_bytes = dtype_map[args.dtype]
 
     # Load JSON configuration
     with open(args.config_file, "r") as f:
@@ -186,7 +177,7 @@ if __name__ == "__main__":
             dim_feedforward=ff_dim,
             batch_first=True
         ).cpu()
-        total_params += count_parameters(encoder_block, num_encoder_blocks, bytes=num_bytes)
+        total_params += count_parameters(encoder_block, num_encoder_blocks)
 
     if num_decoder_blocks > 0:
         decoder_block = nn.TransformerDecoderLayer(
@@ -195,7 +186,7 @@ if __name__ == "__main__":
             dim_feedforward=ff_dim,
             batch_first=True
         ).cpu()
-        total_params += count_parameters(decoder_block, num_decoder_blocks, bytes=num_bytes)
+        total_params += count_parameters(decoder_block, num_decoder_blocks)
 
     # Forward and Backward time measurement
     device = args.device
@@ -229,8 +220,9 @@ if __name__ == "__main__":
     out_path = os.path.join(out_dir, base_name + ".txt")
 
     with open(out_path, "w+") as out_file:
-        out_file.write(f"Forward Flops:{total_flops}\n")
-        out_file.write(f"Backward Flops:{total_flops * args.scale_bwd_flops}\n")
-        out_file.write(f"Model Size (Bytes):{total_params}\n")
-        out_file.write(f"Average Forward Time (s):{total_fwd_time}\n")
-        out_file.write(f"Average Backward Time (s):{total_bwd_time}\n")
+        out_file.write(f"Forward_Flops:{total_flops}\n")
+        out_file.write(f"Backward_Flops:{total_flops * args.scale_bwd_flops}\n")
+        out_file.write(f"Model_Size:{total_params}\n")
+        out_file.write(f"Average_Forward_Time (us):{int(total_fwd_time * 1e6)}\n")
+        out_file.write(f"Average_Backward_Time (us):{total_bwd_time * 1e6}\n")
+        out_file.write(f"Batch_size:{args.batch_size}\n")

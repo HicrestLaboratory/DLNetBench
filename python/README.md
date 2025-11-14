@@ -7,7 +7,7 @@ This Python script computes the **FLOPs**, **model size**, and **forward/backwar
 * Compute **forward and backward FLOPs** using `torch.profiler`.
 * Calculate **model size** in bytes based on parameter data type.
 * Measure **average forward and backward time** on CPU or GPU.
-* Supports **configurable batch size** and **data type precision** (`float16`, `float32`, `int8`).
+* Supports **configurable batch size** and **data type precision** (`float16`, `float32`).
 * Accepts **JSON configuration files** for flexibility.
 
 ## Requirements
@@ -43,7 +43,7 @@ python model_stats.py ../models/vit-b-16.json --batch_size 2 --dtype float32
 
 * `--batch_size`: Batch size (default: 1)
 * `--scale_bwd_flops`: Scale factor for backward FLOPs (default: 2.0)
-* `--dtype`: Parameter precision (`float16`, `float32`, `int8`; default: `float32`)
+* `--dtype`: Parameter precision (`float16`, `float32`; default: `float32`)
 - `--device`: Device to run the model on (`cpu` or `cuda`; default: `cpu`)
 
 ## Output
@@ -51,11 +51,12 @@ python model_stats.py ../models/vit-b-16.json --batch_size 2 --dtype float32
 The script writes results to `../model_stats/<config_name>.txt`. Example output:
 
 ```
-Forward Flops:1234567890
-Backward Flops:2469135780
-Model Size (Bytes):12345678
-Average Forward Time (s):0.045
-Average Backward Time (s):0.092
+Forward_Flops:34918653456
+Backward_Flops:69837306912
+Model_Size:340217856
+Average_Forward_Time(us):23
+Average_Backward_Time_(us):12
+Batch_size:16
 ```
 
 * **Forward/Backward Flops**: Total operations for the model.

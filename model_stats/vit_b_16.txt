@@ -1,5 +1,6 @@
-Forward Flops:34918653456
-Backward Flops:69837306912.0
-Model Size (Bytes):340217856
-Average Forward Time (s):0.013224620819091797
-Average Backward Time (s):0.019452152252197267
+Forward_Flops:34918653456
+Backward_Flops:69837306912
+Model_Size:340217856
+Average_Forward_Time(us):23
+Average_Backward_Time_(us):12
+Batch_size:16
