@@ -4,6 +4,7 @@
 * Description: Python script for computing FLOPs and model size of a Transformer
 *              model using a JSON configuration for encoder and
 *              decoder blocks.
+* Authors: Jacopo Raffi
 *
 *********************************************************************
 """
