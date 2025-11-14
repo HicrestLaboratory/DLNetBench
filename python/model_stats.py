@@ -166,8 +166,8 @@ if __name__ == "__main__":
         ).cpu()
         total_flops += count_flops(decoder_block, seq_len, args.batch_size, embed_dim, num_decoder_blocks, memory_seq_len)
 
-    print(f"Forward Flops:{total_flops}")
-    print(f"Backward Flops:{total_flops * args.scale_bwd_flops}")
+    # print(f"Forward Flops:{total_flops}")
+    # print(f"Backward Flops:{total_flops * args.scale_bwd_flops}")
     # Parameter count
     total_params = 0
     if num_encoder_blocks > 0:

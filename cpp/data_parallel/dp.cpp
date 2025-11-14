@@ -16,12 +16,27 @@
 
 #include "../utils.hpp"
 
+//TODO: how to handle mpi with float16? 
+// Choose type based on compile-time macro
+// #if defined(TYPE_FLOAT16)
+//     #include <stdint.h>
+//     typedef _Float16 real_t;
+//     #define TYPE_NAME "float16"
+// #elif defined(TYPE_FLOAT)
+//     typedef float real_t;
+//     #define TYPE_NAME "float"
+// #elif defined(TYPE_DOUBLE)
+//     typedef double real_t;
+//     #define TYPE_NAME "double"
+// #else
+//     #error "Please define one of TYPE_FLOAT16, TYPE_FLOAT, TYPE_DOUBLE"
+// #endif
+
 // Default values
 #define NUM_B 10
 #define LOCAL_BATCH_SIZE 128
 #define WARM_UP 8
 #define RUNS 128
-
 
 /**
  * @brief Simulates one iteration of data-parallel (using bucketing approach) training for a Transformer model.
@@ -42,10 +57,8 @@ int run_data_parallel(float** grad_ptrs, float** sum_grad_ptrs,
                       float fwd_rt_whole_model, float bwd_rt_per_B){
     
 
-    printf("Data Parallelism: Starting iteration...\n");
     //forward compute
     usleep(fwd_rt_whole_model);
-    printf("Data Parallelism: Finished forward pass.\n");
     //backward (idea is to overlap all-reduce with backward compute)
     MPI_Request grad_allreduce_reqs[num_buckets];
     //must initialize with MPI_REQUEST_NULL
@@ -58,7 +71,6 @@ int run_data_parallel(float** grad_ptrs, float** sum_grad_ptrs,
             MPI_Testany(num_buckets, grad_allreduce_reqs, &index, &flag, MPI_STATUSES_IGNORE); //Checks if any of the non-blocking all-reduce requests have completed
 
         usleep(bwd_rt_per_B); //compute backward of a bucket
-            printf("Data Parallelism: Finished backward compute for bucket %d.\n", i);
 
         MPI_Iallreduce(grad_ptrs[i], sum_grad_ptrs[i], params_per_bucket[i], MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD, &grad_allreduce_reqs[i]);	
     }
