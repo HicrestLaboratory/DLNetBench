@@ -1,6 +1,6 @@
 ## DNNProxy Overview
 
-A proxy framework for benchmarking distributed deep neural network training.
+A proxy framework for benchmarking distributed deep neural network training. Users can create transformer-based models, including encoder-only, decoder-only, or encoder-decoder architectures.
 
 ## License
 
