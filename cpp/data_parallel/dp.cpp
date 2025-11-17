@@ -14,6 +14,9 @@
 #include <stdlib.h>
 #include <assert.h>
 
+#include <ccutils/timers.h>
+#include <ccutils/macros.h>
+
 #include "../utils.hpp"
 
 //TODO: how to handle mpi with float16? 
@@ -36,7 +39,7 @@
 #define NUM_B 10
 #define LOCAL_BATCH_SIZE 128
 #define WARM_UP 8
-#define RUNS 128
+#define RUNS 50
 
 /**
  * @brief Simulates one iteration of data-parallel (using bucketing approach) training for a Transformer model.
@@ -79,7 +82,7 @@ int run_data_parallel(float** grad_ptrs, float** sum_grad_ptrs,
     return 0;
 }
 
-int main(int argc, char *argv[]){
+int main(int argc, char* argv[]){
     int rank, world_size;
 
     int num_buckets = NUM_B;
@@ -145,9 +148,10 @@ int main(int argc, char *argv[]){
                   << ", data_shards = " << world_size
                   << ", total_params = " << total_model_size
                   << ", num_buckets = " << num_buckets
+                  << ", local_batch_size = " << local_batch_size
                   << ", global_batch_size = " << (local_batch_size * world_size)
                   << ".\n";
-        //TODO: Add here all the stats related to data parallelism execution
+        std::cout << "Average iteration time = " << elapse << "s.\n";        
     }
 
     MPI_Finalize();
