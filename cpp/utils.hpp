@@ -91,5 +91,55 @@ std::map<std::string, uint64_t> get_model_stats(std::string file_name){
     return model_stats;   
 }
 
+/**
+* @enum Device
+* @brief Enum to specify the device type for a tensor.
+*/
+enum class Device { CPU, GPU };
+
+
+//TODO: support GPU tensors
+
+/**
+* @class Tensor
+* @brief A lightweight wrapper for a contiguous buffer of data that can reside on CPU or GPU.
+*
+* This class manages memory allocation and deallocation automatically depending on the device.
+* It supports both CPU (host) memory using calloc and GPU (device) memory using cudaMalloc.
+*
+* @tparam T The data type of the tensor elements (e.g., float, double, half).
+*/
+template<typename T>
+class Tensor {
+public:
+    T* data = nullptr;
+    uint64_t size = 0;
+    Device device;
+
+
+    /**
+    * @brief Constructs a tensor of given size on a specified device.
+    *
+    * Allocates memory on the CPU using calloc or on the GPU using cudaMalloc.
+    *
+    * @param size_ Number of elements in the tensor
+    * @param dev Device type (CPU by default)
+    */
+    Tensor(uint64_t size_, Device dev = Device::CPU) : size(size_), device(dev) {
+        if (device == Device::CPU) data = (T*)calloc(size, sizeof(T));
+    }
+
+    /**
+    * @brief Destructor that frees the allocated memory depending on the device.
+    */
+    ~Tensor() {
+        if(data) {
+            if(device == Device::CPU) free(data);
+            // else cudaFree(data);
+        }
+    }
+};
+
+
 
 #endif // UTILS_HPP

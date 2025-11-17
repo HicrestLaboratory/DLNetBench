@@ -55,7 +55,7 @@
  * @param bwd_rt_per_B Backward pass runtime per bucket in microseconds.
  * @return int Always returns 0.
  */
-int run_data_parallel(float** grad_ptrs, float** sum_grad_ptrs, 
+int run_data_parallel(Tensor<float>** grad_ptrs, Tensor<float>** sum_grad_ptrs, 
                       int num_buckets, uint64_t* params_per_bucket,
                       float fwd_rt_whole_model, float bwd_rt_per_B){
     
@@ -71,11 +71,11 @@ int run_data_parallel(float** grad_ptrs, float** sum_grad_ptrs,
     int index, flag;
     for(int i=0; i<num_buckets; i++){
         if(i > 1)
-            MPI_Testany(num_buckets, grad_allreduce_reqs, &index, &flag, MPI_STATUSES_IGNORE); //Checks if any of the non-blocking all-reduce requests have completed
+            MPI_Testany(num_buckets, grad_allreduce_reqs, &index, &flag, MPI_STATUSES_IGNORE); //Checks if any of the non-blocking allreduce requests have completed
 
         usleep(bwd_rt_per_B); //compute backward of a bucket
 
-        MPI_Iallreduce(grad_ptrs[i], sum_grad_ptrs[i], params_per_bucket[i], MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD, &grad_allreduce_reqs[i]);	
+        MPI_Iallreduce(grad_ptrs[i]->data, sum_grad_ptrs[i]->data, params_per_bucket[i], MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD, &grad_allreduce_reqs[i]);	
     }
 
     MPI_Waitall(num_buckets, grad_allreduce_reqs, MPI_STATUSES_IGNORE); 
@@ -119,11 +119,11 @@ int main(int argc, char* argv[]){
     MPI_Comm_size(MPI_COMM_WORLD, &world_size);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-    float* grad_ptrs[num_buckets];
-    float* sum_grad_ptrs[num_buckets];
+    Tensor<float>* grad_ptrs[num_buckets];
+    Tensor<float>* sum_grad_ptrs[num_buckets];
     for(int i=0; i<num_buckets; i++){
-        grad_ptrs[i] = (float *)calloc(params_per_bucket[i], sizeof(float)); //TODO: support also float16
-        sum_grad_ptrs[i] = (float *)calloc(params_per_bucket[i], sizeof(float));
+        grad_ptrs[i] = new Tensor<float>(params_per_bucket[i], Device::CPU); // switch to Device::GPU later
+        sum_grad_ptrs[i] = new Tensor<float>(params_per_bucket[i], Device::CPU);
     }
 
     MPI_Barrier(MPI_COMM_WORLD);
