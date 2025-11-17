@@ -217,7 +217,7 @@ if __name__ == "__main__":
 
     base_name = os.path.splitext(os.path.basename(args.config_file))[0]
     out_dir = os.path.join("..", "model_stats")
-    out_path = os.path.join(out_dir, base_name + ".txt")
+    out_path = os.path.join(out_dir, base_name + f"_{args.batch_size}.txt")
 
     with open(out_path, "w+") as out_file:
         out_file.write(f"Forward_Flops:{total_flops}\n")

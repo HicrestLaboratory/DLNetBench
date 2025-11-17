@@ -59,9 +59,9 @@ Average_Backward_Time_(us):12
 Batch_size:16
 ```
 
-* **Forward/Backward Flops**: Total operations for the model.
-* **Model Size**: Memory footprint in bytes.
-* **Forward/Backward Time**: The average time per batch is first computed for a single block, and then multiplied by the number of blocks to obtain the total time for the entire model.
+* **Forward/Backward Flops**: Total FLOPs for the whole model. Backward FLOPs are computed as $$forward\_flops \cdot scale\_bwd\_flops$$.
+* **Model Size**: Total number of parameters.
+* **Forward/Backward Time**: The average time is first computed for a single block, and then multiplied by the number of blocks to obtain the total time for the entire model.
 
 For example, the total forward time can be written as:
 
