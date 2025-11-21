@@ -32,11 +32,20 @@
 #define RUNS 50
 
 
-void run_fsdp(Tensor<float>** grad_ptrs, Tensor<float>** sum_grad_ptrs, 
-              uint64_t* params_per_unit, float fwd_rt_whole_unit, float bwd_rt_whole_unit, 
-              uint num_units, uint sharding_factor, uint64_t** params_per_shard,
-              uint num_replicas, bool save_parameters, MPI_Comm unit_comm, MPI_Comm allreduce_comm,
-              int** recvcounts_units, int** displs_units){
+void run_fsdp(Tensor<float>** shard_params,
+              Tensor<float>** layer_params,
+              Tensor<float>** allreduce_params,
+              float fwd_rt_whole_unit,
+              float bwd_rt_whole_unit, 
+              uint num_units,
+              uint sharding_factor,
+              uint64_t** params_per_shard,
+              uint num_replicas,
+              bool save_parameters,
+              MPI_Comm unit_comm,
+              MPI_Comm allreduce_comm,
+              int** recvcounts_units,
+              int** displs_units){
 
     int shard_rank, allreduce_rank;
     MPI_Comm_rank(unit_comm, &shard_rank);
@@ -45,12 +54,13 @@ void run_fsdp(Tensor<float>** grad_ptrs, Tensor<float>** sum_grad_ptrs,
         MPI_Comm_rank(allreduce_comm, &allreduce_rank);
     }
 
+    // forward pass
     for(uint u = 0; u < num_units; u++){
         int sendcount = static_cast<int>(params_per_shard[shard_rank][u]);
 
         // 1. Allgather parameters across the shard group using precomputed arrays
-        MPI_Allgatherv(grad_ptrs[u]->data, sendcount, MPI_FLOAT,
-                       sum_grad_ptrs[u]->data,
+        MPI_Allgatherv(shard_params[u]->data, sendcount, MPI_FLOAT,
+                       layer_params[u]->data,
                        recvcounts_units[u],
                        displs_units[u],
                        MPI_FLOAT,
@@ -59,6 +69,42 @@ void run_fsdp(Tensor<float>** grad_ptrs, Tensor<float>** sum_grad_ptrs,
         // 2. Local forward computation
         usleep(fwd_rt_whole_unit); // simulate forward computation time
     }
+
+    //backward pass
+    for(int u = num_units - 1; u >= 0; u--){
+        //1. allgather if save_parameters is false
+        if(!save_parameters){
+            int sendcount = static_cast<int>(params_per_shard[shard_rank][u]);
+            MPI_Allgatherv(shard_params[u]->data, sendcount, MPI_FLOAT,
+                           layer_params[u]->data,
+                           recvcounts_units[u],
+                           displs_units[u],
+                           MPI_FLOAT,
+                           unit_comm);
+        }
+
+        //2. local backward computation
+        usleep(bwd_rt_whole_unit); // simulate backward computation time
+
+        //3. Reduce-Scatter
+        MPI_Reduce_scatter(layer_params[u]->data,   // full layer gradients
+                    shard_params[u]->data,       // receive reduced gradient for this shard
+                    recvcounts_units[u],         // counts per shard
+                    MPI_FLOAT,
+                    MPI_SUM,
+                    allreduce_comm);
+
+        if(num_replicas > 1){
+            //4. Allreduce across replicas if num_replicas > 1
+            MPI_Allreduce(MPI_IN_PLACE,
+                          shard_params[u]->data,
+                          static_cast<int>(params_per_shard[shard_rank][u]),
+                          MPI_FLOAT,
+                          MPI_SUM,
+                          allreduce_comm);
+        }
+    }
+
 }
 
 int main(int argc, char* argv[]){
@@ -137,7 +183,7 @@ int main(int argc, char* argv[]){
     uint num_replicas = world_size / sharding_factor; // number of model replica
     
     // create communicator for each replica group
-    int replica_color = rank / num_replicas;
+    int replica_color = rank / sharding_factor;
     MPI_Comm unit_comm;
     MPI_Comm_split(MPI_COMM_WORLD, replica_color, rank, &unit_comm);
     int group_rank;
@@ -149,17 +195,26 @@ int main(int argc, char* argv[]){
     int allreduce_rank;
     MPI_Comm_rank(allreduce_comm, &allreduce_rank); 
 
-    Tensor<float>* grad_ptrs[num_units];
-    Tensor<float>* sum_grad_ptrs[num_units];
+    // buffers used for Allgathers
+    Tensor<float>* shard_params[num_units];
+    Tensor<float>* layer_params[num_units];
     for(int i=0; i<num_units; i++){
-        grad_ptrs[i] = new Tensor<float>(params_per_shard[shard_index_color][i], Device::CPU); // switch to Device::GPU later
-        sum_grad_ptrs[i] = new Tensor<float>(params_per_shard[shard_index_color][i], Device::CPU);
+        shard_params[i] = new Tensor<float>(params_per_shard[shard_index_color][i], Device::CPU); // switch to Device::GPU later
+        layer_params[i] = new Tensor<float>(params_per_unit[i], Device::CPU);
     }
 
-    run_fsdp(grad_ptrs, sum_grad_ptrs, params_per_unit, 
-             fdw_rt_whole_unit, bwd_rt_whole_unit, 
+    //buffers used for Allreduce (optional)
+    Tensor<float>* allreduce_params[num_units];
+    if(num_replicas > 1){
+        for(int i=0; i<num_units; i++){
+            allreduce_params[i] = new Tensor<float>(params_per_unit[i], Device::CPU);
+        }
+    }
+    run_fsdp(shard_params, layer_params, allreduce_params,
+             fdw_rt_whole_unit, bwd_rt_whole_unit,
              num_units, sharding_factor, params_per_shard,
-             num_replicas, save_parameters, unit_comm, allreduce_comm,
+             num_replicas, save_parameters,
+             unit_comm, allreduce_comm,
              recvcounts_units, displs_units);
 
     MPI_Finalize();
