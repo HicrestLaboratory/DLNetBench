@@ -14,6 +14,9 @@
 #include <stdlib.h>
 #include <assert.h>
 
+#include <ccutils/mpi/mpi_timers.h>
+#include <ccutils/mpi/mpi_macros.h>
+
 #include "../utils.hpp"
 
 /*
@@ -29,27 +32,33 @@
 #define RUNS 50
 
 
-
 void run_fsdp(Tensor<float>** grad_ptrs, Tensor<float>** sum_grad_ptrs, 
-            uint64_t* params_per_unit, float fwd_rt_whole_unit, float bwd_rt_whole_unit, 
-            uint num_replicas, bool save_parameters, MPI_Comm unit_comm){
-   /*
-    * For each unit:
-    *
-    * 1. Allgather parameters across the shard group (shard -> full layer)
-    * 2. Local forward computation
-    * 3. Free peer shards / release parameters (optional, memory optimization)
-    * 4. Allgather parameters on-demand before backward 
-    *      (only if they were released after forward)
-    * 5. Local backward computation (compute gradients)
-    * 6. ReduceScatter gradients within the shard group 
-    *      (each rank keeps its shard)
-    * 7. If F < world_size:
-    *       Allreduce gradients across replicas 
-    *       (synchronize model copies; each shard index talks to corresponding ranks)
-    * 8. Free forward activations/buffers (optional, memory optimization)
-    */
+              uint64_t* params_per_unit, float fwd_rt_whole_unit, float bwd_rt_whole_unit, 
+              uint num_units, uint sharding_factor, uint64_t** params_per_shard,
+              uint num_replicas, bool save_parameters, MPI_Comm unit_comm, MPI_Comm allreduce_comm,
+              int** recvcounts_units, int** displs_units){
 
+    int shard_rank, allreduce_rank;
+    MPI_Comm_rank(unit_comm, &shard_rank);
+    
+    if(num_replicas > 1){
+        MPI_Comm_rank(allreduce_comm, &allreduce_rank);
+    }
+
+    for(uint u = 0; u < num_units; u++){
+        int sendcount = static_cast<int>(params_per_shard[shard_rank][u]);
+
+        // 1. Allgather parameters across the shard group using precomputed arrays
+        MPI_Allgatherv(grad_ptrs[u]->data, sendcount, MPI_FLOAT,
+                       sum_grad_ptrs[u]->data,
+                       recvcounts_units[u],
+                       displs_units[u],
+                       MPI_FLOAT,
+                       unit_comm);
+
+        // 2. Local forward computation
+        usleep(fwd_rt_whole_unit); // simulate forward computation time
+    }
 }
 
 int main(int argc, char* argv[]){
@@ -69,7 +78,8 @@ int main(int argc, char* argv[]){
     if (argc > 3) save_parameters = (std::string(argv[4]) == "true");
     
     std::map<std::string, uint64_t> model_stats = get_model_stats("../../model_stats/" + model_name + ".txt"); // get model stats from file
-    uint num_layers = count_layers("../../models/" + model_name + ".json");
+    std::string model_name_nobatch = model_name.substr(0, model_name.find_last_of("_"));
+    uint num_layers = count_layers("../../models/" + model_name_nobatch + ".json");
 
     uint local_batch_size = model_stats["batchSize"];
     uint64_t total_model_size = model_stats["modelSize"]; // number of parameters
@@ -85,13 +95,32 @@ int main(int argc, char* argv[]){
         params_per_unit[i] = base_params_per_unit + (i < remainder ? 1 : 0); // distribute remainder across the units
     }
 
-    uint64_t params_per_shard[sharding_factor][num_units]; // number of parameters held by each process for each unit
-    
+    uint64_t** params_per_shard = new uint64_t*[sharding_factor];
+    for(int s = 0; s < sharding_factor; s++){
+        params_per_shard[s] = new uint64_t[num_units];
+    }
+
     for (int u = 0; u < num_units; u++) {
         uint64_t base_params_per_shard = params_per_unit[u] / sharding_factor;
         uint64_t rem = params_per_unit[u] % sharding_factor;
+
         for (int s = 0; s < sharding_factor; s++) {
             params_per_shard[s][u] = base_params_per_shard + (s < rem ? 1 : 0);
+        }
+    }
+
+    // Precompute recvcounts and displacements for each unit (useful for Allgatherv)
+    int** recvcounts_units = new int*[num_units];
+    int** displs_units = new int*[num_units];
+
+    for(uint u = 0; u < num_units; u++){
+        recvcounts_units[u] = new int[sharding_factor];
+        displs_units[u] = new int[sharding_factor];
+        displs_units[u][0] = 0;
+        for(int s = 0; s < sharding_factor; s++){
+            recvcounts_units[u][s] = static_cast<int>(params_per_shard[s][u]);
+            if(s > 0)
+                displs_units[u][s] = displs_units[u][s-1] + recvcounts_units[u][s-1];
         }
     }
 
@@ -120,5 +149,19 @@ int main(int argc, char* argv[]){
     int allreduce_rank;
     MPI_Comm_rank(allreduce_comm, &allreduce_rank); 
 
+    Tensor<float>* grad_ptrs[num_units];
+    Tensor<float>* sum_grad_ptrs[num_units];
+    for(int i=0; i<num_units; i++){
+        grad_ptrs[i] = new Tensor<float>(params_per_shard[shard_index_color][i], Device::CPU); // switch to Device::GPU later
+        sum_grad_ptrs[i] = new Tensor<float>(params_per_shard[shard_index_color][i], Device::CPU);
+    }
+
+    run_fsdp(grad_ptrs, sum_grad_ptrs, params_per_unit, 
+             fdw_rt_whole_unit, bwd_rt_whole_unit, 
+             num_units, sharding_factor, params_per_shard,
+             num_replicas, save_parameters, unit_comm, allreduce_comm,
+             recvcounts_units, displs_units);
+
+    MPI_Finalize();
     return 0;
 }

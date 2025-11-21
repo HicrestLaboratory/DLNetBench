@@ -43,7 +43,6 @@
 
 // Default values
 #define NUM_B 10
-#define LOCAL_BATCH_SIZE 128
 #define WARM_UP 8
 #define RUNS 50
 
