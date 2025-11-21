@@ -1,4 +1,5 @@
 MPICXX = mpicxx
+# NVCC   = nvcc  For future NCCL and CUDA support
 
 DP_PATH = ./data_parallel/
 CCUTILS_PATH = $(HOME)/ccutils/include

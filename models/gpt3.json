@@ -1,9 +1,0 @@
-{
-  "embed_dim": 12288,
-  "num_heads": 96,
-  "ff_dim": 49152,
-  "seq_len": 2048,
-  "num_encoder_blocks": 0,
-  "num_decoder_blocks": 96,
-  "memory_seq_len": 1
-}

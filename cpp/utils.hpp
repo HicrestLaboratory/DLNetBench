@@ -5,7 +5,6 @@
  *
  *********************************************************************/
 
-
 #ifndef UTILS_HPP
 #define UTILS_HPP
 
@@ -15,6 +14,9 @@
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <nlohmann/json.hpp>
+
+using json = nlohmann::json;
 
 std::string extract_value(const std::string &line) {
     size_t pos = line.find(':');
@@ -47,8 +49,8 @@ std::string extract_value(const std::string &line) {
  * @param file_name Path to the model statistics file.
  * @return std::map<std::string, float>.
  */
-std::map<std::string, uint64_t> get_model_stats(std::string file_name){
-    std::ifstream file(file_name);
+std::map<std::string, uint64_t> get_model_stats(std::string filename){
+    std::ifstream file(filename);
 
     if (!file.is_open()) {
         std::cerr << "Failed to open file\n";
@@ -91,6 +93,31 @@ std::map<std::string, uint64_t> get_model_stats(std::string file_name){
     return model_stats;   
 }
 
+
+/**
+ * @brief Extracts the number of layers from a model configuration JSON file.
+ * The function reads the JSON file and sums up the number of encoder and decoder blocks
+ * to determine the total number of layers in the model.
+ * @param filename The path to the JSON configuration file.
+ * @return The total number of layers in the model.
+*/
+uint count_layers(std::string filename){
+    std::ifstream f(filename);
+    json data = json::parse(f);
+
+    uint num_layers = 0;
+
+    if(data.contains("num_encoder_blocks")){
+        num_layers += data["num_encoder_blocks"].get<uint>();
+    }
+
+    if(data.contains("num_decoder_blocks")){
+        num_layers += data["num_decoder_blocks"].get<uint>();
+    }
+
+    return num_layers;
+}
+
 /**
 * @enum Device
 * @brief Enum to specify the device type for a tensor.
@@ -109,12 +136,11 @@ enum class Device { CPU, GPU };
 *
 * @tparam T The data type of the tensor elements (e.g., float, double, half).
 */
-template<typename T>
+template<typename T, Device device = Device::CPU>
 class Tensor {
 public:
     T* data = nullptr;
     uint64_t size = 0;
-    Device device;
 
 
     /**
@@ -125,8 +151,8 @@ public:
     * @param size_ Number of elements in the tensor
     * @param dev Device type (CPU by default)
     */
-    Tensor(uint64_t size_, Device dev = Device::CPU) : size(size_), device(dev) {
-        if (device == Device::CPU) data = (T*)calloc(size, sizeof(T));
+    Tensor(uint64_t size_, Device dev = Device::CPU) : size(size_) {
+        if constexpr (device == Device::CPU) data = (T*)calloc(size, sizeof(T));
     }
 
     /**
