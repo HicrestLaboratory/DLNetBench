@@ -162,34 +162,43 @@ int main(int argc, char* argv[]){
     float barrier_avg = barrier_stats.avg;
     float barrier_stddev = barrier_stats.stddev;
 
-    float msg_size_avg = 0.0f;
-    for(int i=0; i<num_buckets; i++){
-        msg_size_avg += params_per_bucket[i];
-    }
-    msg_size_avg = msg_size_avg / num_buckets;
+   std::vector<uint64_t> bucket_sizes(params_per_bucket,
+                                   params_per_bucket + num_buckets);
 
-    float msg_size_std = 0.0f;
-    for(int i=0; i<num_buckets; i++){
-        msg_size_std += (params_per_bucket[i] - msg_size_avg) * (params_per_bucket[i] - msg_size_avg);
-    }
-    msg_size_std = std::sqrt(msg_size_std / num_buckets);
+    std::pair<float, float> msg_stats = compute_msg_stats(bucket_sizes, 1);
+    float msg_size_avg = msg_stats.first;
+    float msg_size_std = msg_stats.second;
 
-    if(rank == 0){
-        std::cout   << "Rank = " << rank << "\n"
-                    << "world_size = " << world_size << "\n" 
-                    << "total_params = " << total_model_size << "\n"
-                    << "num_buckets = " << num_buckets << "\n"
-                    << "local_batch_size = " << local_batch_size << "\n"
-                    << "global_batch_size = " << (local_batch_size * world_size) << "\n"
-                    << "msg_size_avg = " << msg_size_avg << "\n"
-                    << "msg_size_std = " << msg_size_std << "\n"
-                    << "runtime_avg (us) = " << runtime_avg << "\n"
-                    << "runtime_stddev (us) = " << runtime_stddev << "\n"
-                    << "barrier_avg (us) = " << barrier_avg << "\n"
-                    << "barrier_stddev (us) = " << barrier_stddev << "\n"
-                    << "fwd_rt_whole_model (us) = " << fwd_rt_whole_model << "\n"
-                    << "bwd_rt_per_B (us) = " << bwd_rt_per_B << "\n";
-    }
+    MPI_PRINT_ONCE(
+        "Rank = %d\n"
+        "world_size = %d\n"
+        "total_params = %llu\n"
+        "num_buckets = %d\n"
+        "local_batch_size = %d\n"
+        "global_batch_size = %llu\n"
+        "msg_size_avg = %.2f\n"
+        "msg_size_std = %.2f\n"
+        "runtime_avg (us) = %.2f\n"
+        "runtime_stddev (us) = %.2f\n"
+        "barrier_avg (us) = %.2f\n"
+        "barrier_stddev (us) = %.2f\n"
+        "fwd_rt_whole_model (us) = %llu\n"
+        "bwd_rt_per_B (us) = %.2f\n",
+        rank,
+        world_size,
+        total_model_size,
+        num_buckets,
+        local_batch_size,
+        static_cast<unsigned long long>(local_batch_size * world_size),
+        msg_size_avg,
+        msg_size_std,
+        runtime_avg,
+        runtime_stddev,
+        barrier_avg,
+        barrier_stddev,
+        fwd_rt_whole_model,
+        bwd_rt_per_B
+    );
 
     MPI_Finalize();
 }

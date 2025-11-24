@@ -18,6 +18,35 @@
 
 using json = nlohmann::json;
 
+/**
+ * @brief Computes the average and standard deviation of a list of message sizes.
+ *
+ * @param sizes A vector containing the sizes of messages.
+ * @param sharding_multiplier An optional multiplier to scale each size (default is 1).
+ * @return A pair where the first element is the average size and the second is the standard deviation.
+ */
+std::pair<float, float> compute_msg_stats(const std::vector<uint64_t>& sizes, uint sharding_multiplier = 1) {
+    float avg = 0.0f;
+    for (uint64_t s : sizes)
+        avg += s * sharding_multiplier;
+    avg /= sizes.size();
+
+    float stddev = 0.0f;
+    for (uint64_t s : sizes) {
+        float diff = s * sharding_multiplier - avg;
+        stddev += diff * diff;
+    }
+    stddev = std::sqrt(stddev / sizes.size());
+
+    return {avg, stddev};
+}
+
+/**
+ * @brief Extracts the value part from a line formatted as "key: value".
+ *
+ * @param line The input line containing a key-value pair.
+ * @return The extracted value as a string, trimmed of whitespace.
+ */
 std::string extract_value(const std::string &line) {
     size_t pos = line.find(':');
     if (pos == std::string::npos)

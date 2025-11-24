@@ -13,10 +13,10 @@ all: data_parallel
 data_parallel: dp fsdp
 
 dp:
-	$(MPICXX) $(CXXFLAGS) -o $(DP_PATH)/dp $(DP_PATH)/dp.cpp 
+	$(MPICXX) $(CXXFLAGS) -o $(DP_PATH)/$@ $(DP_PATH)/$@.cpp 
 
 fsdp:
-	$(MPICXX) $(CXXFLAGS) -o $(DP_PATH)/fsdp $(DP_PATH)/fsdp.cpp
+	$(MPICXX) $(CXXFLAGS) -o $(DP_PATH)/$@ $(DP_PATH)/$@.cpp
 
 clean:
 	rm $(DP_PATH)/dp $(DP_PATH)/fsdp

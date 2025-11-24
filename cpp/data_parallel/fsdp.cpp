@@ -27,9 +27,9 @@
 */
 
 //timers for each collective and the whole runtime
-MPI_TIMER_DEF(allgather_timer)
-MPI_TIMER_DEF(reduce_scatter_timer)
-MPI_TIMER_DEF(allreduce_timer)
+MPI_TIMER_DEF(allgather)
+MPI_TIMER_DEF(reduce_scatter)
+MPI_TIMER_DEF(barrier)
 MPI_TIMER_DEF(runtime)
 
 //default values
@@ -61,6 +61,7 @@ void run_fsdp(Tensor<float>** shard_params,
     // Forward pass
     for (uint u = 0; u < num_units; u++) {
         // 1. Allgather padded shards
+        MPI_TIMER_START(allgather);
         MPI_Allgather(shard_params[u]->data,
                       static_cast<int>(max_params_per_shard[u]),
                       MPI_FLOAT,
@@ -68,6 +69,7 @@ void run_fsdp(Tensor<float>** shard_params,
                       static_cast<int>(max_params_per_shard[u]),
                       MPI_FLOAT,
                       unit_comm);
+        MPI_TIMER_STOP(allgather);
 
         // 2. Local forward computation (simulated)
         usleep(fwd_rt_whole_unit);
@@ -77,6 +79,7 @@ void run_fsdp(Tensor<float>** shard_params,
     for (int u = num_units - 1; u >= 0; u--) {
         // 1. Optionally allgather saved parameters
         if (!save_parameters) {
+            MPI_TIMER_START(allgather);
             MPI_Allgather(shard_params[u]->data,
                           static_cast<int>(max_params_per_shard[u]),
                           MPI_FLOAT,
@@ -84,18 +87,21 @@ void run_fsdp(Tensor<float>** shard_params,
                           static_cast<int>(max_params_per_shard[u]),
                           MPI_FLOAT,
                           unit_comm);
+            MPI_TIMER_STOP(allgather);    
         }
 
         // 2. Local backward computation (simulated)
         usleep(bwd_rt_whole_unit);
 
         // 3. Reduce-Scatter across shards (padded)
+        MPI_TIMER_START(reduce_scatter);
         MPI_Reduce_scatter_block(layer_params[u]->data,
                                  shard_params[u]->data,
                                  static_cast<int>(max_params_per_shard[u]),
                                  MPI_FLOAT,
                                  MPI_SUM,
                                  allreduce_comm);
+        MPI_TIMER_STOP(reduce_scatter);
 
         // 4. Optional allreduce across replicas
         if (num_replicas > 1) {
@@ -109,8 +115,11 @@ void run_fsdp(Tensor<float>** shard_params,
         }
     }
 
-    if (num_replicas > 1)
+    if (num_replicas > 1){
+        MPI_TIMER_START(barrier);
         MPI_Waitall(num_units, request, MPI_STATUSES_IGNORE);
+        MPI_TIMER_STOP(barrier);
+    }
 }
 
 int main(int argc, char* argv[]){
@@ -179,11 +188,103 @@ int main(int argc, char* argv[]){
     float fwd_rt_whole_unit = (float)fwd_rt_whole_model / num_units;
     float bwd_rt_whole_unit = (float)bwd_rt_whole_model / num_units;
 
-    run_fsdp(shard_params, layer_params, allreduce_params,
-             fwd_rt_whole_unit, bwd_rt_whole_unit,
-             num_units, sharding_factor, max_params_per_shard,
-             num_replicas, save_parameters,
-             unit_comm, allreduce_comm);
+
+    for(int i = 0; i < WARM_UP; i++)
+        run_fsdp(shard_params, layer_params, allreduce_params,
+                 fwd_rt_whole_unit, bwd_rt_whole_unit,
+                 num_units, sharding_factor, max_params_per_shard,
+                 num_replicas, save_parameters,
+                 unit_comm, allreduce_comm);
+
+    
+    for(int i = 0; i < RUNS; i++){
+        MPI_TIMER_START(runtime);
+        run_fsdp(shard_params, layer_params, allreduce_params,
+                 fwd_rt_whole_unit, bwd_rt_whole_unit,
+                 num_units, sharding_factor, max_params_per_shard,
+                 num_replicas, save_parameters,
+                 unit_comm, allreduce_comm);
+        MPI_TIMER_STOP(runtime);
+    } 
+
+    ccutils_timers::TimerStats runtime_stats;
+    ccutils_timers::TimerStats allgather_stats;
+    ccutils_timers::TimerStats reduce_scatter_stats;
+    ccutils_timers::TimerStats barrier_stats;
+
+    runtime_stats = ccutils_timers::compute_stats(__timer_vals_runtime);
+    allgather_stats = ccutils_timers::compute_stats(__timer_vals_allgather);
+    reduce_scatter_stats = ccutils_timers::compute_stats(__timer_vals_reduce_scatter);
+    barrier_stats = ccutils_timers::compute_stats(__timer_vals_barrier);
+
+    float runtime_avg = runtime_stats.avg;
+    float runtime_stddev = runtime_stats.stddev;
+    float allgather_avg = allgather_stats.avg;
+    float allgather_stddev = allgather_stats.stddev;
+    float reduce_scatter_avg = reduce_scatter_stats.avg;
+    float reduce_scatter_stddev = reduce_scatter_stats.stddev;
+    float barrier_avg = barrier_stats.avg;
+    float barrier_stddev = barrier_stats.stddev;
+
+    std::vector<uint64_t> shard_sizes(max_params_per_shard, max_params_per_shard + num_units);
+
+    // Allgather message sizes
+    std::pair<float, float> msg_size_allgather = compute_msg_stats(shard_sizes, sharding_factor);
+    float msg_size_allgather_avg = msg_size_allgather.first;
+    float msg_size_allgather_std = msg_size_allgather.second;
+
+    // Reduce-Scatter message sizes
+    std::pair<float, float> msg_size_reduce_scatter = compute_msg_stats(shard_sizes);
+    float msg_size_reduce_scatter_avg = msg_size_reduce_scatter.first;
+    float msg_size_reduce_scatter_std = msg_size_reduce_scatter.second;
+
+    // Allreduce message sizes
+    std::pair<float, float> msg_size_allreduce = compute_msg_stats(shard_sizes);
+    float msg_size_allreduce_avg = msg_size_allreduce.first;
+    float msg_size_allreduce_std = msg_size_allreduce.second;
+
+    MPI_PRINT_ONCE(
+        "Rank = %d\n"
+        "world_size = %d\n"
+        "total_params = %llu\n"
+        "num_units = %d\n"
+        "sharding_factor = %d\n"
+        "save_parameters = %s\n"
+        "msg_size_allgather_avg = %.2f\n"
+        "msg_size_allgather_std = %.2f\n"
+        "msg_size_reduce_scatter_avg = %.2f\n"
+        "msg_size_reduce_scatter_std = %.2f\n"
+        "msg_size_allreduce_avg = %.2f\n"
+        "msg_size_allreduce_std = %.2f\n"
+        "runtime_avg (us) = %.2f\n"
+        "runtime_stddev (us) = %.2f\n"
+        "allgather_avg (us) = %.2f\n"
+        "allgather_stddev (us) = %.2f\n"
+        "reduce_scatter_avg (us) = %.2f\n"
+        "reduce_scatter_stddev (us) = %.2f\n"
+        "barrier_avg (us) = %.2f\n"
+        "barrier_stddev (us) = %.2f\n",
+        rank,
+        world_size,
+        total_model_size,
+        num_units,
+        sharding_factor,
+        save_parameters ? "true" : "false",
+        msg_size_allgather_avg,
+        msg_size_allgather_std,
+        msg_size_reduce_scatter_avg,
+        msg_size_reduce_scatter_std,
+        msg_size_allreduce_avg,
+        msg_size_allreduce_std,
+        runtime_avg,
+        runtime_stddev,
+        allgather_avg,
+        allgather_stddev,
+        reduce_scatter_avg,
+        reduce_scatter_stddev,
+        barrier_avg,
+        barrier_stddev
+    );
 
     MPI_Finalize();
     return 0;
