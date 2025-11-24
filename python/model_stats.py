@@ -67,6 +67,57 @@ def count_parameters(block, num_blocks:int):
 
     return block_size * num_blocks
 
+def fwd_bwd_time_ffn(block, seq_len:int, batch_size:int, embed_dim:int, device='cpu'):
+    """
+    Compute forward/backward time ONLY for the FFN part of a Transformer block.
+    """
+    # FFN: linear1 → activation → linear2
+    linear1 = block.linear1
+    linear2 = block.linear2
+    activation = block.activation
+
+    linear1 = linear1.to(device)
+    linear2 = linear2.to(device)
+
+    x = torch.randn(batch_size, seq_len, embed_dim, device=device)
+
+    # Warm-up
+    for _ in range(10):
+        h = activation(linear1(x))
+        y = linear2(h)
+        loss = y.sum()
+        loss.backward()
+        linear1.zero_grad()
+        linear2.zero_grad()
+
+    # Timed runs
+    n_iters = 50
+    total_fwd = 0.0
+    total_bwd = 0.0
+
+    for _ in range(n_iters):
+
+        # Forward
+        start = time.time()
+        h = activation(linear1(x))
+        y = linear2(h)
+        fwd = time.time() - start
+
+        # Backward
+        start = time.time()
+        loss = y.sum()
+        loss.backward()
+        bwd = time.time() - start
+
+        total_fwd += fwd
+        total_bwd += bwd
+
+        linear1.zero_grad()
+        linear2.zero_grad()
+    print(f"FFN Forward time (us): {(total_fwd / n_iters) * 1e6}")
+    print(f"FFN Backward time (us): {(total_bwd / n_iters) * 1e6}")
+    return (total_fwd / n_iters), (total_bwd / n_iters)
+
 def fwd_bwd_time(block, seq_len:int, batch_size:int, embed_dim:int, num_blocks:int, memory_seq_len:int=0, device:str='cpu'):
     """
     Compute the average forward and backward time of a single block on CPU or GPU.
@@ -127,6 +178,7 @@ if __name__ == "__main__":
     parser.add_argument("config_file", type=str, help="Path to JSON model configuration file")
     parser.add_argument("--batch_size", type=int, default=1, help="Batch size for testing")
     parser.add_argument("--scale_bwd_flops", type=float, default=2.0, help="Scale factor for backward FLOPs")
+    parser.add_argument("--experts", type=int, default=1, help="Number of experts for MoE models")
     parser.add_argument("--dtype", type=str, default="float32", help="DType for model parameters [float16, float32]", choices=["float16", "float32"])
     parser.add_argument("--device", type=str, default="cpu", help="Device to run the timing tests on ['cpu', 'cuda']")
     args = parser.parse_args()
@@ -193,6 +245,9 @@ if __name__ == "__main__":
     total_fwd_time = 0.0
     total_bwd_time = 0.0
 
+    total_ffn_fwd_time = 0.0
+    total_ffn_bwd_time = 0.0
+
     if num_encoder_blocks > 0:
         encoder_block = nn.TransformerEncoderLayer(
             d_model=embed_dim,
@@ -203,6 +258,11 @@ if __name__ == "__main__":
         fwd_time, bwd_time = fwd_bwd_time(encoder_block, seq_len, args.batch_size, embed_dim, num_encoder_blocks, device=device)
         total_fwd_time += fwd_time
         total_bwd_time += bwd_time
+        ffn_fwd_time, ffn_bwd_time = 0, 0
+        if args.experts > 1:
+            ffn_fwd_time, ffn_bwd_time = fwd_bwd_time_ffn(encoder_block, seq_len, args.batch_size, embed_dim, device=device)
+        total_ffn_fwd_time += ffn_fwd_time
+        total_ffn_bwd_time += ffn_bwd_time
     
     if num_decoder_blocks > 0:
         decoder_block = nn.TransformerDecoderLayer(
@@ -214,6 +274,11 @@ if __name__ == "__main__":
         fwd_time, bwd_time = fwd_bwd_time(decoder_block, seq_len, args.batch_size, embed_dim, num_decoder_blocks, memory_seq_len, device=device)
         total_fwd_time += fwd_time
         total_bwd_time += bwd_time
+        ffn_fwd_time, ffn_bwd_time = 0, 0
+        if args.experts > 1:
+            ffn_fwd_time, ffn_bwd_time = fwd_bwd_time_ffn(encoder_block, seq_len, args.batch_size, embed_dim, device=device)
+        total_ffn_fwd_time += ffn_fwd_time
+        total_ffn_bwd_time += ffn_bwd_time
 
     base_name = os.path.splitext(os.path.basename(args.config_file))[0]
     out_dir = os.path.join("..", "model_stats")
@@ -226,3 +291,6 @@ if __name__ == "__main__":
         out_file.write(f"Average_Forward_Time (us):{int(total_fwd_time * 1e6)}\n")
         out_file.write(f"Average_Backward_Time (us):{total_bwd_time * 1e6}\n")
         out_file.write(f"Batch_size:{args.batch_size}\n")
+        out_file.write(f"FFN_Average_Forward_Time (us):{int(total_ffn_fwd_time * 1e6)}\n")
+        out_file.write(f"FFN_Average_Backward_Time (us):{int(total_ffn_bwd_time * 1e6)}\n")
+        out_file.write(f"Experts:{args.experts}\n")

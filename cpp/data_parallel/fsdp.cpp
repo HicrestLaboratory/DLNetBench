@@ -243,10 +243,10 @@ int main(int argc, char* argv[]){
     float msg_size_allreduce_avg = msg_size_allreduce.first;
     float msg_size_allreduce_std = msg_size_allreduce.second;
 
-    MPI_PRINT_ONCE(
+   MPI_PRINT_ONCE(
         "Rank = %d\n"
         "world_size = %d\n"
-        "total_params = %llu\n"
+        "total_params = %lu\n"
         "num_units = %d\n"
         "sharding_factor = %d\n"
         "save_parameters = %s\n"
@@ -263,7 +263,9 @@ int main(int argc, char* argv[]){
         "reduce_scatter_avg (us) = %.2f\n"
         "reduce_scatter_stddev (us) = %.2f\n"
         "barrier_avg (us) = %.2f\n"
-        "barrier_stddev (us) = %.2f\n",
+        "barrier_stddev (us) = %.2f\n"
+        "fwd_rt_whole_unit (us) = %f\n"
+        "bwd_rt_whole_unit (us) = %f\n",
         rank,
         world_size,
         total_model_size,
@@ -276,14 +278,16 @@ int main(int argc, char* argv[]){
         msg_size_reduce_scatter_std,
         msg_size_allreduce_avg,
         msg_size_allreduce_std,
-        runtime_avg,
-        runtime_stddev,
-        allgather_avg,
-        allgather_stddev,
-        reduce_scatter_avg,
-        reduce_scatter_stddev,
+        runtime_avg * 1e6,
+        runtime_stddev * 1e6,
+        allgather_avg * 1e6,
+        allgather_stddev * 1e6,
+        reduce_scatter_avg * 1e6,
+        reduce_scatter_stddev * 1e6,
         barrier_avg,
-        barrier_stddev
+        barrier_stddev,
+        fwd_rt_whole_unit,
+        bwd_rt_whole_unit
     );
 
     MPI_Finalize();

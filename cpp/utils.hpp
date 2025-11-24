@@ -71,9 +71,11 @@ std::string extract_value(const std::string &line) {
  *   - Average Forward Time (s):<value>
  *   - Average Backward Time (s):<value>
  *   - Batch Size:<value>
- *
+ *   - FFN_Average_Forward_Time (us):15125
+ *   - FFN_Average_Backward_Time (us):24139
+ *   - Experts: 4
  * Each parsed value is stored in the returned map with keys:
- * "forwardFlops", "backwardFlops", "modelSize", "avgForwardTime", "avgBackwardTime".
+ * "forwardFlops", "backwardFlops", "modelSize", "avgForwardTime", "avgBackwardTime", "batchSize", "ffn_avgForwardTime", "ffn_avgBackwardTime", "experts".
  *
  * @param file_name Path to the model statistics file.
  * @return std::map<std::string, float>.
@@ -112,12 +114,26 @@ std::map<std::string, uint64_t> get_model_stats(std::string filename){
     std::getline(file, line);
     uint64_t batch_size = std::stoull(extract_value(line));
 
+    // FFN Average Forward Time (us)
+    std::getline(file, line);
+    uint64_t ffn_avgForwardTime = std::stoull(extract_value(line));
+
+    // FFN Average Backward Time (us)
+    std::getline(file, line);
+    uint64_t ffn_avgBackwardTime = std::stoull(extract_value(line));
+
+    std::getline(file, line); // Experts (optional)
+    uint64_t experts = std::stoull(extract_value(line));
+
     model_stats["forwardFlops"] = forwardFlops;
     model_stats["backwardFlops"] = backwardFlops;
     model_stats["modelSize"] = modelSize;
     model_stats["avgForwardTime"] = avgForwardTime;
     model_stats["avgBackwardTime"] = avgBackwardTime;
     model_stats["batchSize"] = batch_size;
+    model_stats["ffn_avgForwardTime"] = ffn_avgForwardTime;
+    model_stats["ffn_avgBackwardTime"] = ffn_avgBackwardTime;
+    model_stats["experts"] = experts;
 
     return model_stats;   
 }

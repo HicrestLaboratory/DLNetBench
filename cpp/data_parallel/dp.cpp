@@ -172,28 +172,28 @@ int main(int argc, char* argv[]){
     MPI_PRINT_ONCE(
         "Rank = %d\n"
         "world_size = %d\n"
-        "total_params = %llu\n"
+        "total_params = %lu\n"
         "num_buckets = %d\n"
         "local_batch_size = %d\n"
-        "global_batch_size = %llu\n"
+        "global_batch_size = %u\n"
         "msg_size_avg = %.2f\n"
         "msg_size_std = %.2f\n"
         "runtime_avg (us) = %.2f\n"
         "runtime_stddev (us) = %.2f\n"
         "barrier_avg (us) = %.2f\n"
         "barrier_stddev (us) = %.2f\n"
-        "fwd_rt_whole_model (us) = %llu\n"
+        "fwd_rt_whole_model (us) = %lu\n"
         "bwd_rt_per_B (us) = %.2f\n",
         rank,
         world_size,
         total_model_size,
         num_buckets,
         local_batch_size,
-        static_cast<unsigned long long>(local_batch_size * world_size),
+        (local_batch_size * world_size),
         msg_size_avg,
         msg_size_std,
-        runtime_avg,
-        runtime_stddev,
+        runtime_avg * 1e6,
+        runtime_stddev * 1e6,
         barrier_avg,
         barrier_stddev,
         fwd_rt_whole_model,
