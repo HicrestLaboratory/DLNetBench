@@ -15,7 +15,7 @@ import time
 
 import torch
 import torch.nn as nn
-from torch.profiler import profile, ProfilerActivity
+from torch.profiler import profile, record_function, ProfilerActivity
 import os
 
 def count_flops(block, seq_len:int, batch_size:int, embed_dim:int, num_blocks:int, memory_seq_len:int=0):
@@ -67,17 +67,16 @@ def count_parameters(block, num_blocks:int):
 
     return block_size * num_blocks
 
-def fwd_bwd_time_ffn(block, seq_len:int, batch_size:int, embed_dim:int, device='cpu'):
+
+def fwd_bwd_time_ffn(block, seq_len: int, batch_size: int, embed_dim: int, device='cpu'):
     """
     Compute forward/backward time ONLY for the FFN part of a Transformer block.
+    Returns (avg_fwd_time, avg_bwd_time) in seconds.
     """
     # FFN: linear1 → activation → linear2
-    linear1 = block.linear1
-    linear2 = block.linear2
+    linear1 = block.linear1.to(device)
+    linear2 = block.linear2.to(device)
     activation = block.activation
-
-    linear1 = linear1.to(device)
-    linear2 = linear2.to(device)
 
     x = torch.randn(batch_size, seq_len, embed_dim, device=device)
 
@@ -90,23 +89,25 @@ def fwd_bwd_time_ffn(block, seq_len:int, batch_size:int, embed_dim:int, device='
         linear1.zero_grad()
         linear2.zero_grad()
 
-    # Timed runs
     n_iters = 50
     total_fwd = 0.0
     total_bwd = 0.0
 
     for _ in range(n_iters):
-
         # Forward
         start = time.perf_counter()
         h = activation(linear1(x))
         y = linear2(h)
+        if device == 'cuda':
+            torch.cuda.synchronize()
         fwd = time.perf_counter() - start
 
         # Backward
         start = time.perf_counter()
         loss = y.sum()
         loss.backward()
+        if device == 'cuda':
+            torch.cuda.synchronize()
         bwd = time.perf_counter() - start
 
         total_fwd += fwd
@@ -114,63 +115,67 @@ def fwd_bwd_time_ffn(block, seq_len:int, batch_size:int, embed_dim:int, device='
 
         linear1.zero_grad()
         linear2.zero_grad()
-    print(f"FFN Forward time (us): {(total_fwd / n_iters) * 1e6}")
-    print(f"FFN Backward time (us): {(total_bwd / n_iters) * 1e6}")
-    return (total_fwd / n_iters), (total_bwd / n_iters)
 
-def fwd_bwd_time(block, seq_len:int, batch_size:int, embed_dim:int, num_blocks:int, memory_seq_len:int=0, device:str='cpu'):
+    return total_fwd / n_iters, total_bwd / n_iters
+
+def fwd_bwd_time(block, seq_len:int, batch_size:int, embed_dim:int,
+                 num_blocks:int, memory_seq_len:int=0, device:str='cpu'):
     """
-    Compute the average forward and backward time of a single block on CPU or GPU.
-    
-    Args:
-        block: The Transformer block (encoder or decoder) to profile.
-        seq_len: Sequence length of the input.
-        batch_size: Batch size for the input.
-        embed_dim: Embedding dimension of the model.
-        num_blocks: Number of blocks to multiply the time.
-        memory_seq_len: Memory sequence length (for decoder blocks).
-        device: Device to run on ('cpu' or 'cuda').
-    
-    Returns:
-        Tuple: (average forward time, average backward time) in seconds for the model.
+    Measure forward/backward time for a full Transformer block.
+    Returns (avg_fwd_time, avg_bwd_time) in seconds, scaled by num_blocks.
     """
 
     input_tensor = torch.randn(batch_size, seq_len, embed_dim, device=device)
-    memory_tensor = torch.randn(batch_size, memory_seq_len, embed_dim, device=device) if memory_seq_len else None
+    memory_tensor = (
+        torch.randn(batch_size, memory_seq_len, embed_dim, device=device)
+        if memory_seq_len else None
+    )
+
+    activities = [ProfilerActivity.CPU]
+    if device == "cuda":
+        activities.append(ProfilerActivity.CUDA)
 
     # Warm-up
     for _ in range(10):
-        output = block(input_tensor, memory_tensor) if memory_tensor is not None else block(input_tensor)
-        loss = output.sum()
+        out = block(input_tensor, memory_tensor) if memory_tensor is not None else block(input_tensor)
+        loss = out.sum()
         loss.backward()
         block.zero_grad()
 
-    # Timing
-    n_iters = 50
-    total_fwd_time = 0.0
-    total_bwd_time = 0.0
+    n_iters = 1
+    total_fwd = 0.0
+    total_bwd = 0.0
 
     for _ in range(n_iters):
-        # Forward pass
-        start_time = time.perf_counter()
-        output = block(input_tensor, memory_tensor) if memory_tensor is not None else block(input_tensor)
-        loss = output.sum()
-        fwd_time = time.perf_counter() - start_time
+        with profile(activities=activities) as prof:
 
-        # Backward pass
-        start_time = time.perf_counter()
-        loss.backward()
-        bwd_time = time.perf_counter() - start_time
+            with record_function("FWD"):
+                out = block(input_tensor, memory_tensor) if memory_tensor is not None else block(input_tensor)
+                loss = out.sum()
 
-        total_fwd_time += fwd_time
-        total_bwd_time += bwd_time
+            with record_function("BWD"):
+                loss.backward()
+
+        events = prof.key_averages()
+
+        # get the events
+        fwd_evt = next(e for e in events if e.key == "FWD")
+        bwd_evt = next(e for e in events if e.key == "BWD")
+
+        # auto-select CPU or CUDA times
+        if hasattr(fwd_evt, "self_cuda_time_total"):
+            total_fwd += fwd_evt.self_cuda_time_total / 1e6
+            total_bwd += bwd_evt.self_cuda_time_total / 1e6
+        else:
+            total_fwd += fwd_evt.self_cpu_time_total / 1e6
+            total_bwd += bwd_evt.self_cpu_time_total / 1e6
 
         block.zero_grad()
 
-    avg_fwd_time = (total_fwd_time / n_iters) * num_blocks
-    avg_bwd_time = (total_bwd_time / n_iters) * num_blocks
+    avg_fwd = (total_fwd / n_iters) * num_blocks
+    avg_bwd = (total_bwd / n_iters) * num_blocks
 
-    return avg_fwd_time, avg_bwd_time
+    return avg_fwd, avg_bwd
 
 
 if __name__ == "__main__":
