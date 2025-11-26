@@ -78,8 +78,8 @@ int run_data_parallel(Tensor<float>** grad_ptrs, Tensor<float>** sum_grad_ptrs,
 
     int index, flag;
     for(int i=0; i<num_buckets; i++){
-        if(i > 1)
-            MPI_Testany(num_buckets, grad_allreduce_reqs, &index, &flag, MPI_STATUSES_IGNORE); //Checks if any of the non-blocking allreduce requests have completed
+        // if(i > 1)
+        //     MPI_Testany(num_buckets, grad_allreduce_reqs, &index, &flag, MPI_STATUSES_IGNORE); //Checks if any of the non-blocking allreduce requests have completed
 
         usleep(bwd_rt_per_B); //compute backward of a bucket
 
@@ -169,7 +169,8 @@ int main(int argc, char* argv[]){
     float msg_size_avg = msg_stats.first;
     float msg_size_std = msg_stats.second;
 
-    MPI_PRINT_ONCE(
+    MPI_ALL_PRINT(
+    fprintf(fp,
         "Rank = %d\n"
         "world_size = %d\n"
         "total_params = %lu\n"
@@ -199,6 +200,7 @@ int main(int argc, char* argv[]){
         fwd_rt_whole_model,
         bwd_rt_per_B
     );
+);
 
     MPI_Finalize();
 }

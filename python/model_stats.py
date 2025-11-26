@@ -18,7 +18,7 @@ import torch.nn as nn
 from torch.profiler import profile, ProfilerActivity
 import os
 
-def count_flops(block, seq_len:int, batch_size:int, embed_dim:int, num_blocks:int, memory_seq_len:int=None):
+def count_flops(block, seq_len:int, batch_size:int, embed_dim:int, num_blocks:int, memory_seq_len:int=0):
     '''
     Count the FLOPs for a given Transformer block.
 
@@ -98,16 +98,16 @@ def fwd_bwd_time_ffn(block, seq_len:int, batch_size:int, embed_dim:int, device='
     for _ in range(n_iters):
 
         # Forward
-        start = time.time()
+        start = time.perf_counter()
         h = activation(linear1(x))
         y = linear2(h)
-        fwd = time.time() - start
+        fwd = time.perf_counter() - start
 
         # Backward
-        start = time.time()
+        start = time.perf_counter()
         loss = y.sum()
         loss.backward()
-        bwd = time.time() - start
+        bwd = time.perf_counter() - start
 
         total_fwd += fwd
         total_bwd += bwd
@@ -152,15 +152,15 @@ def fwd_bwd_time(block, seq_len:int, batch_size:int, embed_dim:int, num_blocks:i
 
     for _ in range(n_iters):
         # Forward pass
-        start_time = time.time()
+        start_time = time.perf_counter()
         output = block(input_tensor, memory_tensor) if memory_tensor is not None else block(input_tensor)
         loss = output.sum()
-        fwd_time = time.time() - start_time
+        fwd_time = time.perf_counter() - start_time
 
         # Backward pass
-        start_time = time.time()
+        start_time = time.perf_counter()
         loss.backward()
-        bwd_time = time.time() - start_time
+        bwd_time = time.perf_counter() - start_time
 
         total_fwd_time += fwd_time
         total_bwd_time += bwd_time
@@ -276,7 +276,7 @@ if __name__ == "__main__":
         total_bwd_time += bwd_time
         ffn_fwd_time, ffn_bwd_time = 0, 0
         if args.experts > 1:
-            ffn_fwd_time, ffn_bwd_time = fwd_bwd_time_ffn(encoder_block, seq_len, args.batch_size, embed_dim, device=device)
+            ffn_fwd_time, ffn_bwd_time = fwd_bwd_time_ffn(decoder_block, seq_len, args.batch_size, embed_dim, device=device)
         total_ffn_fwd_time += ffn_fwd_time
         total_ffn_bwd_time += ffn_bwd_time
 

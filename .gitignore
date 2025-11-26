@@ -1,3 +1,9 @@
-*vscode
+#Executable
 *dp
 *fsdp
+
+#vscode folder
+*vscode
+
+# Txt files used to test the python parser
+*.txt
