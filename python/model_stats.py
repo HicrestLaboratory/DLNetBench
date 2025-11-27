@@ -12,7 +12,8 @@
 import argparse
 import json
 import time
-
+from pathlib import Path
+import os
 import torch
 import torch.nn as nn
 from torch.profiler import profile, record_function, ProfilerActivity
@@ -68,12 +69,13 @@ def count_parameters(block, num_blocks:int):
     return block_size * num_blocks
 
 
-def fwd_bwd_time_ffn(block, seq_len: int, batch_size: int, embed_dim: int, device='cpu'):
+def fwd_bwd_time_ffn(block, seq_len: int, batch_size: int,
+                     embed_dim: int, device='cpu'):
     """
-    Compute forward/backward time ONLY for the FFN part of a Transformer block.
-    Returns (avg_fwd_time, avg_bwd_time) in seconds.
+    Compute forward/backward *median* time for the FFN part of a Transformer block.
+    Returns (median_fwd_us, median_bwd_us) in microseconds.
     """
-    # FFN: linear1 → activation → linear2
+
     linear1 = block.linear1.to(device)
     linear2 = block.linear2.to(device)
     activation = block.activation
@@ -88,94 +90,89 @@ def fwd_bwd_time_ffn(block, seq_len: int, batch_size: int, embed_dim: int, devic
         loss.backward()
         linear1.zero_grad()
         linear2.zero_grad()
+        if device == "cuda":
+            torch.cuda.synchronize()
 
     n_iters = 50
-    total_fwd = 0.0
-    total_bwd = 0.0
+    fwd_times = []
+    bwd_times = []
 
     for _ in range(n_iters):
-        # Forward
-        start = time.perf_counter()
+
+        # Forward timing
+        if device == "cuda": torch.cuda.synchronize()
+        t0 = time.perf_counter()
         h = activation(linear1(x))
         y = linear2(h)
-        if device == 'cuda':
-            torch.cuda.synchronize()
-        fwd = time.perf_counter() - start
+        if device == "cuda": torch.cuda.synchronize()
+        fwd_times.append((time.perf_counter() - t0) * 1e6)
 
-        # Backward
-        start = time.perf_counter()
+        # Backward timing
         loss = y.sum()
+        if device == "cuda": torch.cuda.synchronize()
+        t1 = time.perf_counter()
         loss.backward()
-        if device == 'cuda':
-            torch.cuda.synchronize()
-        bwd = time.perf_counter() - start
-
-        total_fwd += fwd
-        total_bwd += bwd
+        if device == "cuda": torch.cuda.synchronize()
+        bwd_times.append((time.perf_counter() - t1) * 1e6)
 
         linear1.zero_grad()
         linear2.zero_grad()
 
-    return total_fwd / n_iters, total_bwd / n_iters
+    median_fwd = torch.tensor(fwd_times).median().item()
+    median_bwd = torch.tensor(bwd_times).median().item()
+
+    return median_fwd, median_bwd
 
 def fwd_bwd_time(block, seq_len:int, batch_size:int, embed_dim:int,
-                 num_blocks:int, memory_seq_len:int=0, device:str='cpu'):
+                 num_blocks:int=1, memory_seq_len:int=0, device:str='cpu'):
     """
-    Measure forward/backward time for a full Transformer block.
-    Returns (avg_fwd_time, avg_bwd_time) in seconds, scaled by num_blocks.
+    Measure forward/backward median time for a Transformer block.
+    
+    Returns (median_fwd_time, median_bwd_time) in seconds.
     """
-
+    
+    # Input tensors
     input_tensor = torch.randn(batch_size, seq_len, embed_dim, device=device)
-    memory_tensor = (
-        torch.randn(batch_size, memory_seq_len, embed_dim, device=device)
-        if memory_seq_len else None
-    )
-
-    activities = [ProfilerActivity.CPU]
-    if device == "cuda":
-        activities.append(ProfilerActivity.CUDA)
-
+    memory_tensor = (torch.randn(batch_size, memory_seq_len, embed_dim, device=device)
+                     if memory_seq_len > 0 else None)
+    
     # Warm-up
     for _ in range(10):
         out = block(input_tensor, memory_tensor) if memory_tensor is not None else block(input_tensor)
         loss = out.sum()
         loss.backward()
         block.zero_grad()
-
-    n_iters = 1
-    total_fwd = 0.0
-    total_bwd = 0.0
-
+        if device == "cuda":
+            torch.cuda.synchronize()
+    
+    # Timing loop
+    n_iters = 50
+    fwd_times = []
+    bwd_times = []
+    
     for _ in range(n_iters):
-        with profile(activities=activities) as prof:
-
-            with record_function("FWD"):
-                out = block(input_tensor, memory_tensor) if memory_tensor is not None else block(input_tensor)
-                loss = out.sum()
-
-            with record_function("BWD"):
-                loss.backward()
-
-        events = prof.key_averages()
-
-        # get the events
-        fwd_evt = next(e for e in events if e.key == "FWD")
-        bwd_evt = next(e for e in events if e.key == "BWD")
-
-        # auto-select CPU or CUDA times
-        if hasattr(fwd_evt, "self_cuda_time_total"):
-            total_fwd += fwd_evt.self_cuda_time_total / 1e6
-            total_bwd += bwd_evt.self_cuda_time_total / 1e6
-        else:
-            total_fwd += fwd_evt.self_cpu_time_total / 1e6
-            total_bwd += bwd_evt.self_cpu_time_total / 1e6
-
+        # Forward timing
+        if device == "cuda": torch.cuda.synchronize()
+        t0 = time.perf_counter()
+        out = block(input_tensor, memory_tensor) if memory_tensor is not None else block(input_tensor)
+        if device == "cuda": torch.cuda.synchronize()
+        fwd_times.append((time.perf_counter() - t0)*1e6)
+        
+        # Backward timing
+        loss = out.sum()
+        if device == "cuda": torch.cuda.synchronize()
+        t1 = time.perf_counter()
+        loss.backward()
+        if device == "cuda": torch.cuda.synchronize()
+        bwd_times.append((time.perf_counter() - t1)*1e6)
+        
         block.zero_grad()
-
-    avg_fwd = (total_fwd / n_iters) * num_blocks
-    avg_bwd = (total_bwd / n_iters) * num_blocks
-
-    return avg_fwd, avg_bwd
+    
+    # Median times, scaled by num_blocks
+    median_fwd = torch.tensor(fwd_times).median().item() * num_blocks
+    median_bwd = torch.tensor(bwd_times).median().item() * num_blocks
+    
+    return median_fwd, median_bwd
 
 
 if __name__ == "__main__":
@@ -286,16 +283,18 @@ if __name__ == "__main__":
         total_ffn_bwd_time += ffn_bwd_time
 
     base_name = os.path.splitext(os.path.basename(args.config_file))[0]
-    out_dir = os.path.join("..", "model_stats")
-    out_path = os.path.join(out_dir, base_name + f"_{args.batch_size}.txt")
+    
+    home = os.path.expanduser("~")
+    out_dir = os.path.join(home, "DNNProxy/model_stats")
+    out_path = os.path.join(out_dir, f"{base_name}_{args.batch_size}.txt")
 
     with open(out_path, "w+") as out_file:
         out_file.write(f"Forward_Flops:{total_flops}\n")
         out_file.write(f"Backward_Flops:{total_flops * args.scale_bwd_flops}\n")
         out_file.write(f"Model_Size:{total_params}\n")
-        out_file.write(f"Average_Forward_Time (us):{int(total_fwd_time * 1e6)}\n")
-        out_file.write(f"Average_Backward_Time (us):{total_bwd_time * 1e6}\n")
+        out_file.write(f"Average_Forward_Time (us):{int(total_fwd_time)}\n")
+        out_file.write(f"Average_Backward_Time (us):{total_bwd_time}\n")
         out_file.write(f"Batch_size:{args.batch_size}\n")
-        out_file.write(f"FFN_Average_Forward_Time (us):{int(total_ffn_fwd_time * 1e6)}\n")
-        out_file.write(f"FFN_Average_Backward_Time (us):{int(total_ffn_bwd_time * 1e6)}\n")
+        out_file.write(f"FFN_Average_Forward_Time (us):{int(total_ffn_fwd_time)}\n")
+        out_file.write(f"FFN_Average_Backward_Time (us):{int(total_ffn_bwd_time)}\n")
         out_file.write(f"Experts:{args.experts}\n")
