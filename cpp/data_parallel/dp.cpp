@@ -20,6 +20,9 @@
 #include <stdlib.h>
 #include <assert.h>
 
+#include <nlohmann/json.hpp>
+using nlohmann::json;
+
 #include <ccutils/mpi/mpi_timers.h>
 #include <ccutils/mpi/mpi_macros.h>
 
@@ -151,56 +154,45 @@ int main(int argc, char* argv[]){
         MPI_TIMER_STOP(runtime)
     }
 
-    ccutils_timers::TimerStats runtime_stats;
-    ccutils_timers::TimerStats barrier_stats;
-
-    runtime_stats = ccutils_timers::compute_stats(__timer_vals_runtime);
-    barrier_stats = ccutils_timers::compute_stats(__timer_vals_barrier);
-
-    float runtime_avg = runtime_stats.avg;
-    float runtime_stddev = runtime_stats.stddev;
-    float barrier_avg = barrier_stats.avg;
-    float barrier_stddev = barrier_stats.stddev;
-
    std::vector<uint64_t> bucket_sizes(params_per_bucket,
                                    params_per_bucket + num_buckets);
-
     std::pair<float, float> msg_stats = compute_msg_stats(bucket_sizes, 1);
     float msg_size_avg = msg_stats.first;
     float msg_size_std = msg_stats.second;
 
+    MPI_PRINT_ONCE(
+                "world_size=%d\n"
+                "total_params=%lu\n"
+                "num_buckets=%d\n"
+                "local_batch_size=%d\n"
+                "global_batch_size=%u\n"
+                "msg_size_avg=%.2f\n"
+                "msg_size_std=%.2f\n"
+                "fwd_time=%lu\n"
+                "bwd_time=%f\n",
+                world_size,
+                total_model_size,
+                num_buckets,
+                local_batch_size,
+                (local_batch_size * world_size),
+                msg_size_avg,
+                msg_size_std,
+                fwd_rt_whole_model,
+                bwd_rt_per_B
+                
+    )
+
     MPI_ALL_PRINT(
-    fprintf(fp,
-        "Rank = %d\n"
-        "world_size = %d\n"
-        "total_params = %lu\n"
-        "num_buckets = %d\n"
-        "local_batch_size = %d\n"
-        "global_batch_size = %u\n"
-        "msg_size_avg = %.2f\n"
-        "msg_size_std = %.2f\n"
-        "runtime_avg (us) = %.2f\n"
-        "runtime_stddev (us) = %.2f\n"
-        "barrier_avg (us) = %.2f\n"
-        "barrier_stddev (us) = %.2f\n"
-        "fwd_rt_whole_model (us) = %lu\n"
-        "bwd_rt_per_B (us) = %.2f\n",
-        rank,
-        world_size,
-        total_model_size,
-        num_buckets,
-        local_batch_size,
-        (local_batch_size * world_size),
-        msg_size_avg,
-        msg_size_std,
-        runtime_avg * 1e6,
-        runtime_stddev * 1e6,
-        barrier_avg,
-        barrier_stddev,
-        fwd_rt_whole_model,
-        bwd_rt_per_B
+        json j;
+
+        j["Rank"]          = rank;
+        j["runtime_vals"]  = __timer_vals_runtime;
+        j["barrier_vals"]  = __timer_vals_barrier;
+
+        std::string out = j.dump(1);
+
+        fprintf(fp, "%s\n", out.c_str());
     );
-);
 
     MPI_Finalize();
 }
