@@ -25,6 +25,7 @@ using nlohmann::json;
 
 #include <ccutils/mpi/mpi_timers.h>
 #include <ccutils/mpi/mpi_macros.h>
+#include <ccutils/macros.h>
 
 #include "../utils.hpp"
 
@@ -47,7 +48,7 @@ using nlohmann::json;
 // Default values
 #define NUM_B 10
 #define WARM_UP 8
-#define RUNS 50
+#define RUNS 5
 
 MPI_TIMER_DEF(runtime)
 MPI_TIMER_DEF(barrier)
@@ -154,45 +155,27 @@ int main(int argc, char* argv[]){
         MPI_TIMER_STOP(runtime)
     }
 
+    MPI_SECTION_DEF(dp, "Data Parallelism")
+
    std::vector<uint64_t> bucket_sizes(params_per_bucket,
                                    params_per_bucket + num_buckets);
     std::pair<float, float> msg_stats = compute_msg_stats(bucket_sizes, 1);
     float msg_size_avg = msg_stats.first;
     float msg_size_std = msg_stats.second;
+    MPI_GLOBAL_JSON_PUT(dp, "model_name", model_name)
+    MPI_GLOBAL_JSON_PUT(dp, "num_buckets", num_buckets)
+    MPI_GLOBAL_JSON_PUT(dp, "local_batch_size", local_batch_size)
+    MPI_GLOBAL_JSON_PUT(dp, "world_size", world_size)
+    MPI_GLOBAL_JSON_PUT(dp, "fwd_rt_whole_model_s", fwd_rt_whole_model)
+    MPI_GLOBAL_JSON_PUT(dp, "bwd_rt_per_bucket_s", bwd_rt_per_B)
+    MPI_GLOBAL_JSON_PUT(dp, "total_model_size_params", total_model_size)
+    MPI_GLOBAL_JSON_PUT(dp, "msg_size_avg_bytes", msg_size_avg*sizeof(float))
+    MPI_GLOBAL_JSON_PUT(dp, "msg_size_std_bytes", msg_size_std*sizeof(float))
 
-    MPI_PRINT_ONCE(
-                "world_size=%d\n"
-                "total_params=%lu\n"
-                "num_buckets=%d\n"
-                "local_batch_size=%d\n"
-                "global_batch_size=%u\n"
-                "msg_size_avg=%.2f\n"
-                "msg_size_std=%.2f\n"
-                "fwd_time=%lu\n"
-                "bwd_time=%f\n",
-                world_size,
-                total_model_size,
-                num_buckets,
-                local_batch_size,
-                (local_batch_size * world_size),
-                msg_size_avg,
-                msg_size_std,
-                fwd_rt_whole_model,
-                bwd_rt_per_B
-                
-    )
+    SECTION_JSON_PUT(dp, "runtimes", __timer_vals_runtime);
+    SECTION_JSON_PUT(dp, "barrier_time_us", __timer_vals_barrier);
 
-    MPI_ALL_PRINT(
-        json j;
-
-        j["Rank"]          = rank;
-        j["runtime_vals"]  = __timer_vals_runtime;
-        j["barrier_vals"]  = __timer_vals_barrier;
-
-        std::string out = j.dump(1);
-
-        fprintf(fp, "%s\n", out.c_str());
-    );
+    MPI_SECTION_END(dp);
 
     MPI_Finalize();
 }
