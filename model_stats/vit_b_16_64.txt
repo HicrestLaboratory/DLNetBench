@@ -1,0 +1,11 @@
+Forward_Flops:2234793821184
+Backward_Flops:4469587642368.0
+Model_Size:85054464
+Average_Forward_Time (us):131455
+Average_Backward_Time (us):242994.8203125
+Batch_size:64
+FFN_Average_Forward_Time (us):0
+FFN_Average_Backward_Time (us):0
+Experts:1
+
+//GPU name: NVIDIA A100-SXM-64G
