@@ -1,0 +1,22 @@
+sequential: true
+
+variables:
+  nodes: [2, 4, 8]
+  batch_size: [32, 64]
+  models: ['vit_b_16_32', 'vit_b_16_64']
+  model_configs: ['models/vit_b_16.json']
+  num_buckets: [5, 10, 20]
+  models_hardcoded: ['dp']
+
+  partition: ["boost_usr_prod"] # Leonardo
+  # partition: ["eth", "ib"]
+
+jobs:
+  - config: "pytorch_stats"
+    config_jobs:
+      - tag: "pytorch_stats"
+        command: "python3 python/model_stats.py {model_configs} --batch_size={batch_size}"
+  - config: "{partition}_{nodes}nodes"
+    config_jobs:
+      - tag: "{models_hardcoded}"
+        command: "mpirun -np {nodes} {models_hardcoded} {models} {num_buckets}"

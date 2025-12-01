@@ -155,9 +155,18 @@ int main(int argc, char* argv[]){
         MPI_TIMER_STOP(runtime)
     }
 
+    char host_name[MPI_MAX_PROCESSOR_NAME];
+	char (*host_names)[MPI_MAX_PROCESSOR_NAME];
+	int namelen,bytes,n,color;
+	MPI_Get_processor_name(host_name,&namelen);
+	#ifdef FORCE_INTERNODE_ONLY
+		color = myproc;
+		sprintf(host_name + namelen, "_%d", myproc);
+		namelen = strlen(host_name);
+	#endif
     MPI_SECTION_DEF(dp, "Data Parallelism")
 
-   std::vector<uint64_t> bucket_sizes(params_per_bucket,
+    std::vector<uint64_t> bucket_sizes(params_per_bucket,
                                    params_per_bucket + num_buckets);
     std::pair<float, float> msg_stats = compute_msg_stats(bucket_sizes, 1);
     float msg_size_avg = msg_stats.first;
@@ -174,6 +183,7 @@ int main(int argc, char* argv[]){
 
     SECTION_JSON_PUT(dp, "runtimes", __timer_vals_runtime);
     SECTION_JSON_PUT(dp, "barrier_time_us", __timer_vals_barrier);
+    SECTION_JSON_PUT(dp, "hostname", host_name);
 
     MPI_SECTION_END(dp);
 
