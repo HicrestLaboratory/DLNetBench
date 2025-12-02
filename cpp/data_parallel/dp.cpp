@@ -19,6 +19,7 @@
 #include <time.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <cstdlib> // for getenv
 
 #include <nlohmann/json.hpp>
 using nlohmann::json;
@@ -29,7 +30,7 @@ using nlohmann::json;
 
 #include "../utils.hpp"
 
-//TODO: how to handle mpi with float16? 
+//TODO: handle float16
 // Choose type based on compile-time macro
 // #if defined(TYPE_FLOAT16)
 //     #include <stdint.h>
@@ -48,7 +49,7 @@ using nlohmann::json;
 // Default values
 #define NUM_B 10
 #define WARM_UP 8
-#define RUNS 5
+#define RUNS 50
 
 MPI_TIMER_DEF(runtime)
 MPI_TIMER_DEF(barrier)
@@ -110,8 +111,9 @@ int main(int argc, char* argv[]){
     if(argc > 2){
         num_buckets = std::stoi(argv[2]);
     }
-
-    std::map<std::string, uint64_t> model_stats = get_model_stats("../../model_stats/" + model_name + ".txt"); // get model stats from file
+    const char* home = std::getenv("HOME");
+    std::string file_path = std::string(home) + "/DNNProxy/model_stats/" + model_name + ".txt";
+    std::map<std::string, uint64_t> model_stats = get_model_stats(file_path); // get model stats from file
     
     uint64_t fwd_rt_whole_model = model_stats["avgForwardTime"]; // in us
     float bwd_rt_per_B = (model_stats["avgBackwardTime"]) / num_buckets; // in us

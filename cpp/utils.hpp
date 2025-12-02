@@ -15,6 +15,7 @@
 #include <iostream>
 #include <map>
 #include <nlohmann/json.hpp>
+#include <cerrno>
 
 using json = nlohmann::json;
 
@@ -84,8 +85,8 @@ std::map<std::string, uint64_t> get_model_stats(std::string filename){
     std::ifstream file(filename);
 
     if (!file.is_open()) {
-        std::cerr << "Failed to open file\n";
-        return {};
+        std::cerr << std::strerror(errno) << "\n";
+        throw std::runtime_error("Could not open model stats file: " + filename);
     }
 
     std::map<std::string, uint64_t> model_stats;
