@@ -5,7 +5,7 @@ DP_PATH = ./data_parallel/
 CCUTILS = $(HOME)/ccutils/install/include
 
 $(CCUTILS):
-        cd $(HOME)/ccutils && \
+	cd $(HOME)/ccutils && \
         cmake -S . -B build -DCCUTILS_ENABLE_MPI=ON && \
         cmake --build build && \
         cmake --install build --prefix ./install
@@ -22,7 +22,7 @@ dp: $(CCUTILS)
         $(MPICXX) $(CXXFLAGS) -o $(DP_PATH)/$@ $(DP_PATH)/$@.cpp
 
 fsdp:
-        $(MPICXX) $(CXXFLAGS) -o $(DP_PATH)/$@ $(DP_PATH)/$@.cpp
+	$(MPICXX) $(CXXFLAGS) -o $(DP_PATH)/$@ $(DP_PATH)/$@.cpp
 
 clean:
-        rm -f $(DP_PATH)/dp $(DP_PATH)/fsdp
+	rm -f $(DP_PATH)/dp $(DP_PATH)/fsdp
