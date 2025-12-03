@@ -1,0 +1,10 @@
+Forward_Flops:4469587642368
+Backward_Flops:8939175284736.0
+Model_Size:85054464
+Average_Forward_Time (us):280663
+Average_Backward_Time (us):524915.953125
+Batch_size:128
+FFN_Average_Forward_Time (us):0
+FFN_Average_Backward_Time (us):0
+Experts:1
+Device:NVIDIA A100-SXM4-40GB

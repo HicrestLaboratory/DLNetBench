@@ -1,11 +1,10 @@
 Forward_Flops:1117396910592
 Backward_Flops:2234793821184.0
 Model_Size:85054464
-Average_Forward_Time (us):68470
-Average_Backward_Time (us):125209.58203125
+Average_Forward_Time (us):73707
+Average_Backward_Time (us):137608.91015625
 Batch_size:32
 FFN_Average_Forward_Time (us):0
 FFN_Average_Backward_Time (us):0
 Experts:1
-
-//GPU name: NVIDIA A100-SXM-64G
+Device:NVIDIA A100-SXM4-40GB
