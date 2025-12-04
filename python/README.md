@@ -62,17 +62,14 @@ FFN_Average_Backward_Time (us):24139
 Experts:4
 ```
 
-* **Forward/Backward Flops**: Total FLOPs for the whole model. Backward FLOPs are computed as $$forward\_flops \cdot scale\_bwd\_flops$$.
-* **Model Size**: Total number of parameters.
-* **Forward/Backward Time**: The average time is first computed for a single block, and then multiplied by the number of blocks to obtain the total time for the entire model.
-For example, the total forward time can be written as:
+* **Forward/Backward Flops**: Total FLOPs for the whole model. Backward FLOPs are computed as `forward_flops * scale_bwd_flops`.  
+* **Model Size**: Total number of parameters.  
+* **Forward/Backward Time**: The average time is first computed for a single block, and then multiplied by the number of blocks to obtain the total time for the entire model. For example, the total forward time can be written as:  
 
-$$
-\text{Total Forward Time} =
-(\text{num\_encoder\_blocks} \cdot \text{avg\_encoder\_fwd\_time}) \\
-+ (\text{num\_decoder\_blocks} \cdot \text{avg\_decoder\_fwd\_time})
-$$
-* **Batch_size**: The batch size used to compute the times.
-* **FFN_Forward/Backward Time**: The average time for the FFN module of the transformer block (useful when doing MoE).
+  `Total Forward Time = (num_encoder_blocks * avg_encoder_fwd_time) + (num_decoder_blocks * avg_decoder_fwd_time)`  
+
+* **Batch_size**: The batch size used to compute the times.  
+* **FFN_Forward/Backward Time**: The average time for the FFN module of the transformer block (useful when doing MoE).  
 * **Experts**: Number of experts in the FFN module of a single block.
+
 

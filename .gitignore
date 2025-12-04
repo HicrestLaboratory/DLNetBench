@@ -4,3 +4,6 @@
 
 #vscode folder
 *vscode
+
+#Python cache
+__pycache__/
