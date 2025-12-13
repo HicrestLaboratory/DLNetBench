@@ -24,35 +24,21 @@
 #include <nlohmann/json.hpp>
 using nlohmann::json;
 
-#include <ccutils/mpi/mpi_timers.h>
-#include <ccutils/mpi/mpi_macros.h>
-#include <ccutils/macros.h>
+#include <ccutils/mpi/mpi_timers.hpp>
+#include <ccutils/mpi/mpi_macros.hpp>
+#include <ccutils/macros.hpp>
 
 #include "../utils.hpp"
 
-//TODO: handle float16
-// Choose type based on compile-time macro
-// #if defined(TYPE_FLOAT16)
-//     #include <stdint.h>
-//     typedef _Float16 real_t;
-//     #define TYPE_NAME "float16"
-// #elif defined(TYPE_FLOAT)
-//     typedef float real_t;
-//     #define TYPE_NAME "float"
-// #elif defined(TYPE_DOUBLE)
-//     typedef double real_t;
-//     #define TYPE_NAME "double"
-// #else
-//     #error "Please define one of TYPE_FLOAT16, TYPE_FLOAT, TYPE_DOUBLE"
-// #endif
+//TODO: handle float16 later
 
 // Default values
 #define NUM_B 10
 #define WARM_UP 8
 #define RUNS 50
 
-MPI_TIMER_DEF(runtime)
-MPI_TIMER_DEF(barrier)
+CCUTILS_MPI_TIMER_DEF(runtime)
+CCUTILS_MPI_TIMER_DEF(barrier)
 
 /**
  * @brief Simulates one iteration of data-parallel (using bucketing approach) training for a Transformer model.
@@ -91,9 +77,9 @@ int run_data_parallel(Tensor<float>** grad_ptrs, Tensor<float>** sum_grad_ptrs,
         MPI_Iallreduce(grad_ptrs[i]->data, sum_grad_ptrs[i]->data, params_per_bucket[i], MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD, &grad_allreduce_reqs[i]);	
     }
 
-    MPI_TIMER_START(barrier)
+    CCUTILS_MPI_TIMER_START(barrier)
     MPI_Waitall(num_buckets, grad_allreduce_reqs, MPI_STATUSES_IGNORE);
-    MPI_TIMER_STOP(barrier) 
+    CCUTILS_MPI_TIMER_STOP(barrier) 
     return 0;
 }
 
@@ -151,10 +137,10 @@ int main(int argc, char* argv[]){
     }
 
     for(int iter = 0; iter < RUNS; iter++){
-        MPI_TIMER_START(runtime)
+        CCUTILS_MPI_TIMER_START(runtime)
         run_data_parallel(grad_ptrs, sum_grad_ptrs, num_buckets, params_per_bucket,
                          fwd_rt_whole_model, bwd_rt_per_B);
-        MPI_TIMER_STOP(runtime)
+        CCUTILS_MPI_TIMER_STOP(runtime)
     }
 
     char host_name[MPI_MAX_PROCESSOR_NAME];
@@ -166,28 +152,28 @@ int main(int argc, char* argv[]){
 		sprintf(host_name + namelen, "_%d", myproc);
 		namelen = strlen(host_name);
 	#endif
-    MPI_SECTION_DEF(dp, "Data Parallelism")
+    CCUTILS_MPI_SECTION_DEF(dp, "Data Parallelism")
 
     std::vector<uint64_t> bucket_sizes(params_per_bucket,
                                    params_per_bucket + num_buckets);
     std::pair<float, float> msg_stats = compute_msg_stats(bucket_sizes, 1);
     float msg_size_avg = msg_stats.first;
     float msg_size_std = msg_stats.second;
-    MPI_GLOBAL_JSON_PUT(dp, "model_name", model_name)
-    MPI_GLOBAL_JSON_PUT(dp, "num_buckets", num_buckets)
-    MPI_GLOBAL_JSON_PUT(dp, "local_batch_size", local_batch_size)
-    MPI_GLOBAL_JSON_PUT(dp, "world_size", world_size)
-    MPI_GLOBAL_JSON_PUT(dp, "fwd_rt_whole_model_s", fwd_rt_whole_model)
-    MPI_GLOBAL_JSON_PUT(dp, "bwd_rt_per_bucket_s", bwd_rt_per_B)
-    MPI_GLOBAL_JSON_PUT(dp, "total_model_size_params", total_model_size)
-    MPI_GLOBAL_JSON_PUT(dp, "msg_size_avg_bytes", msg_size_avg*sizeof(float))
-    MPI_GLOBAL_JSON_PUT(dp, "msg_size_std_bytes", msg_size_std*sizeof(float))
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "model_name", model_name)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "num_buckets", num_buckets)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "local_batch_size", local_batch_size)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "world_size", world_size)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "fwd_rt_whole_model_s", fwd_rt_whole_model)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "bwd_rt_per_bucket_s", bwd_rt_per_B)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "total_model_size_params", total_model_size)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "msg_size_avg_bytes", msg_size_avg*sizeof(float))
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "msg_size_std_bytes", msg_size_std*sizeof(float))
 
-    SECTION_JSON_PUT(dp, "runtimes", __timer_vals_runtime);
-    SECTION_JSON_PUT(dp, "barrier_time_us", __timer_vals_barrier);
-    SECTION_JSON_PUT(dp, "hostname", host_name);
+    CCUTILS_SECTION_JSON_PUT(dp, "runtimes", __timer_vals_runtime);
+    CCUTILS_SECTION_JSON_PUT(dp, "barrier_time_us", __timer_vals_barrier);
+    CCUTILS_SECTION_JSON_PUT(dp, "hostname", host_name);
 
-    MPI_SECTION_END(dp);
+    CCUTILS_MPI_SECTION_END(dp);
 
     MPI_Finalize();
 }
