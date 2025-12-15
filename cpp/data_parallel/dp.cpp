@@ -91,8 +91,8 @@ int main(int argc, char* argv[]) {
 
     int num_buckets = NUM_B;
 
-    if(argc < 2){
-        std::cout << "Usage: mpirun -n <world_size> ./dp <model_name> [num_buckets]\n";
+    if(argc < 3){
+        std::cout << "Usage: mpirun -n <world_size> ./dp <model_name> <num_buckets> <base_path>\n";
         return -1;
     }
 
@@ -101,28 +101,19 @@ int main(int argc, char* argv[]) {
         num_buckets = std::stoi(argv[2]);
     }
 
-    // --- Search for DNNProxy folder upwards from current directory ---
-    fs::path current = fs::current_path();
-    fs::path repo_path;
-
-    while(!current.empty()) {
-        if(fs::exists(current / "DNNProxy") && fs::is_directory(current / "DNNProxy")) {
-            repo_path = current / "DNNProxy";
-            break;
-        }
-        current = current.parent_path();
+     // --- Get DNNProxy base path ---
+    fs::path repo_path = get_dnnproxy_base_path(argc, argv, rank);
+    if (repo_path.empty()) {
+        MPI_Finalize();
+        return -1;  // DNNProxy not found
     }
 
-    if(repo_path.empty()) {
-        std::cerr << "Error: DNNProxy folder not found in current or parent directories.\n";
-        return -1;
-    }
-
-    // Construct path to model stats
+    // --- Construct model stats file path ---
     fs::path file_path = repo_path / "model_stats" / (model_name + ".txt");
-
-    if(!fs::exists(file_path)) {
-        std::cerr << "Error: model stats file does not exist: " << file_path << "\n";
+    if (!fs::exists(file_path)) {
+        if (rank == 0)
+            std::cerr << "Error: model stats file does not exist: " << file_path << "\n";
+        MPI_Finalize();
         return -1;
     }
     std::map<std::string, uint64_t> model_stats = get_model_stats(file_path); // get model stats from file
