@@ -13,6 +13,8 @@
 #include <time.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <filesystem>
+namespace fs = std::filesystem;
 
 #include <ccutils/mpi/mpi_timers.hpp>
 #include <ccutils/mpi/mpi_macros.hpp>
@@ -123,7 +125,7 @@ void run_fsdp(Tensor<float>** shard_params,
     }
 }
 
-int main(int argc, char* argv[]){
+int main(int argc, char* argv[]) {
     MPI_Init(&argc, &argv);
 
     int world_size, rank;
@@ -132,7 +134,7 @@ int main(int argc, char* argv[]){
 
     if (argc < 4) {
         if (rank == 0)
-            std::cout << "Usage: mpirun -n <world_size> ./fsdp <model_name> <num_units> <sharding_factor> <save_parameters>\n";
+            std::cout << "Usage: mpirun -n <world_size> ./fsdp <model_name> <num_units> <sharding_factor> [save_parameters]\n";
         MPI_Finalize();
         return -1;
     }
@@ -144,9 +146,33 @@ int main(int argc, char* argv[]){
 
     assert(world_size % sharding_factor == 0);
 
-    // Model stats
-    const char* home = std::getenv("HOME");
-    std::string file_path = std::string(home) + "/DNNProxy/model_stats/" + model_name + ".txt";
+    // --- Search for DNNProxy folder upwards from current directory ---
+    fs::path current = fs::current_path();
+    fs::path repo_path;
+
+    while(!current.empty()) {
+        if(fs::exists(current / "DNNProxy") && fs::is_directory(current / "DNNProxy")) {
+            repo_path = current / "DNNProxy";
+            break;
+        }
+        current = current.parent_path();
+    }
+
+    if(repo_path.empty()) {
+        if (rank == 0)
+            std::cerr << "Error: DNNProxy folder not found in current or parent directories.\n";
+        MPI_Finalize();
+        return -1;
+    }
+
+    fs::path file_path = repo_path / "model_stats" / (model_name + ".txt");
+
+    if(!fs::exists(file_path)) {
+        if (rank == 0)
+            std::cerr << "Error: model stats file does not exist: " << file_path << "\n";
+        MPI_Finalize();
+        return -1;
+    }
     std::map<std::string, uint64_t> model_stats = get_model_stats(file_path); // get model stats from file
 
     uint64_t total_model_size = model_stats["modelSize"];

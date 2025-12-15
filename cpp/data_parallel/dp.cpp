@@ -21,6 +21,9 @@
 #include <assert.h>
 #include <cstdlib> // for getenv
 
+#include <filesystem>
+namespace fs = std::filesystem;
+
 #include <nlohmann/json.hpp>
 using nlohmann::json;
 
@@ -83,13 +86,13 @@ int run_data_parallel(Tensor<float>** grad_ptrs, Tensor<float>** sum_grad_ptrs,
     return 0;
 }
 
-int main(int argc, char* argv[]){
+int main(int argc, char* argv[]) {
     int rank, world_size;
 
     int num_buckets = NUM_B;
 
     if(argc < 2){
-        std::cout << "Usage: mpirun -n <world_size> ./dp <model_name> <num_buckets>\n";
+        std::cout << "Usage: mpirun -n <world_size> ./dp <model_name> [num_buckets]\n";
         return -1;
     }
 
@@ -97,8 +100,31 @@ int main(int argc, char* argv[]){
     if(argc > 2){
         num_buckets = std::stoi(argv[2]);
     }
-    const char* home = std::getenv("HOME");
-    std::string file_path = std::string(home) + "/DNNProxy/model_stats/" + model_name + ".txt";
+
+    // --- Search for DNNProxy folder upwards from current directory ---
+    fs::path current = fs::current_path();
+    fs::path repo_path;
+
+    while(!current.empty()) {
+        if(fs::exists(current / "DNNProxy") && fs::is_directory(current / "DNNProxy")) {
+            repo_path = current / "DNNProxy";
+            break;
+        }
+        current = current.parent_path();
+    }
+
+    if(repo_path.empty()) {
+        std::cerr << "Error: DNNProxy folder not found in current or parent directories.\n";
+        return -1;
+    }
+
+    // Construct path to model stats
+    fs::path file_path = repo_path / "model_stats" / (model_name + ".txt");
+
+    if(!fs::exists(file_path)) {
+        std::cerr << "Error: model stats file does not exist: " << file_path << "\n";
+        return -1;
+    }
     std::map<std::string, uint64_t> model_stats = get_model_stats(file_path); // get model stats from file
     
     uint64_t fwd_rt_whole_model = model_stats["avgForwardTime"]; // in us
