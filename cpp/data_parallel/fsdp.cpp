@@ -145,6 +145,7 @@ int main(int argc, char* argv[]) {
     bool save_parameters = (argc > 4) ? (std::string(argv[4]) == "true") : false;
 
     assert(world_size % sharding_factor == 0);
+    //TODO: assert num_layers % num_units == 0 when num_layers info is available
 
      // --- Get DNNProxy base path ---
     fs::path repo_path = get_dnnproxy_base_path(argc, argv, rank);
