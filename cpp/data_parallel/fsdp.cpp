@@ -4,6 +4,9 @@
  *              with data parallelism
  * Author: Jacopo Raffi
  *
+ * Proxy code inspired by: https://engineering.fb.com/2021/07/15/open-source/fsdp/
+ * 
+ * 
  *********************************************************************/
 
 #include <mpi.h>
@@ -38,7 +41,7 @@ CCUTILS_MPI_TIMER_DEF(runtime)
 
 //default values
 #define WARM_UP 8
-#define RUNS 50
+#define RUNS 10
 
 
 void run_fsdp(Tensor<float>** shard_params,
@@ -50,7 +53,6 @@ void run_fsdp(Tensor<float>** shard_params,
               uint sharding_factor,
               uint64_t* max_params_per_shard,
               uint num_replicas,
-              bool save_parameters,
               MPI_Comm unit_comm,
               MPI_Comm allreduce_comm){
     MPI_Request request[num_units];
@@ -81,17 +83,15 @@ void run_fsdp(Tensor<float>** shard_params,
     // Backward pass
     for (int u = num_units - 1; u >= 0; u--) {
         // 1. Optionally allgather saved parameters
-        if (!save_parameters) {
-            CCUTILS_MPI_TIMER_START(allgather);
-            MPI_Allgather(shard_params[u]->data,
-                          static_cast<int>(max_params_per_shard[u]),
-                          MPI_FLOAT,
-                          layer_params[u]->data,
-                          static_cast<int>(max_params_per_shard[u]),
-                          MPI_FLOAT,
-                          unit_comm);
-            CCUTILS_MPI_TIMER_STOP(allgather);    
-        }
+        CCUTILS_MPI_TIMER_START(allgather);
+        MPI_Allgather(shard_params[u]->data,
+                        static_cast<int>(max_params_per_shard[u]),
+                        MPI_FLOAT,
+                        layer_params[u]->data,
+                        static_cast<int>(max_params_per_shard[u]),
+                        MPI_FLOAT,
+                        unit_comm);
+        CCUTILS_MPI_TIMER_STOP(allgather);    
 
         // 2. Local backward computation (simulated)
         usleep(bwd_rt_whole_unit);
@@ -103,7 +103,7 @@ void run_fsdp(Tensor<float>** shard_params,
                                  static_cast<int>(max_params_per_shard[u]),
                                  MPI_FLOAT,
                                  MPI_SUM,
-                                 allreduce_comm);
+                                 unit_comm);
         CCUTILS_MPI_TIMER_STOP(reduce_scatter);
 
         // 4. Optional allreduce across replicas
@@ -134,7 +134,7 @@ int main(int argc, char* argv[]) {
 
     if (argc < 4) { //TODO: remove the save_parameters argument
         if (rank == 0)
-            std::cout << "Usage: mpirun -n <world_size> ./fsdp <model_name> <num_units> <sharding_factor> <save_parameters> <base_path>\n";
+            std::cout << "Usage: mpirun -n <world_size> ./fsdp <model_name> <num_units> <sharding_factor> <base_path>\n";
         MPI_Finalize();
         return -1;
     }
@@ -142,7 +142,6 @@ int main(int argc, char* argv[]) {
     std::string model_name = argv[1];
     uint num_units = std::stoi(argv[2]);
     uint sharding_factor = std::stoi(argv[3]);
-    bool save_parameters = (argc > 4) ? (std::string(argv[4]) == "true") : false;
 
     assert(world_size % sharding_factor == 0);
     //TODO: assert num_layers % num_units == 0 when num_layers info is available
@@ -214,8 +213,7 @@ int main(int argc, char* argv[]) {
         run_fsdp(shard_params, layer_params, allreduce_params,
                  fwd_rt_whole_unit, bwd_rt_whole_unit,
                  num_units, sharding_factor, max_params_per_shard,
-                 num_replicas, save_parameters,
-                 unit_comm, allreduce_comm);
+                 num_replicas, unit_comm, allreduce_comm);
 
     
     for(int i = 0; i < RUNS; i++){
@@ -223,8 +221,7 @@ int main(int argc, char* argv[]) {
         run_fsdp(shard_params, layer_params, allreduce_params,
                  fwd_rt_whole_unit, bwd_rt_whole_unit,
                  num_units, sharding_factor, max_params_per_shard,
-                 num_replicas, save_parameters,
-                 unit_comm, allreduce_comm);
+                 num_replicas, unit_comm, allreduce_comm);
         CCUTILS_MPI_TIMER_STOP(runtime);
     } 
 
@@ -239,7 +236,6 @@ int main(int argc, char* argv[]) {
     CCUTILS_MPI_GLOBAL_JSON_PUT(fsdp, "model_size_bytes", total_model_size*sizeof(float))
     CCUTILS_MPI_GLOBAL_JSON_PUT(fsdp, "num_units", num_units)
     CCUTILS_MPI_GLOBAL_JSON_PUT(fsdp, "sharding_factor", sharding_factor)
-    CCUTILS_MPI_GLOBAL_JSON_PUT(fsdp, "save_parameters", save_parameters)
     CCUTILS_MPI_GLOBAL_JSON_PUT(fsdp, "num_replicas", num_replicas)
     CCUTILS_MPI_GLOBAL_JSON_PUT(fsdp, "local_batch_size", local_batch_size)
     
