@@ -18,6 +18,13 @@ import torch
 import torch.nn as nn
 from torch.profiler import profile, record_function, ProfilerActivity
 import os
+import platform
+
+# Detect device name
+if torch.cuda.is_available():
+    device_name = torch.cuda.get_device_name(torch.cuda.current_device())
+else:
+    device_name = platform.processor()
 
 def count_flops(block, seq_len:int, batch_size:int, embed_dim:int, num_blocks:int, memory_seq_len:int=0):
     '''
@@ -298,3 +305,4 @@ if __name__ == "__main__":
         out_file.write(f"FFN_Average_Forward_Time (us):{int(total_ffn_fwd_time)}\n")
         out_file.write(f"FFN_Average_Backward_Time (us):{int(total_ffn_bwd_time)}\n")
         out_file.write(f"Experts:{args.experts}\n")
+        out_file.write(f"Device:{device_name}\n")
