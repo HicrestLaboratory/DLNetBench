@@ -16,8 +16,54 @@
 #include <map>
 #include <nlohmann/json.hpp>
 #include <cerrno>
+#include <filesystem>
+#include <cstdlib>
 
 using json = nlohmann::json;
+namespace fs = std::filesystem;
+
+/**
+ * Get the base path of the DNNProxy folder.
+ * 
+ * @param argc Number of command-line arguments.
+ * @param argv Command-line arguments.
+ * @param rank MPI rank (for error messages).
+ * @return The fs::path to the DNNProxy folder.
+ * @throws std::runtime_error if the folder does not exist or HOME is not set.
+ */
+fs::path get_dnnproxy_base_path(int argc, char* argv[], int rank) {
+    fs::path base_path;
+
+    // If the user provided a base path as the last argument, prepend $HOME
+    if (argc > 1) {
+        const char* home = std::getenv("HOME");
+        if (!home) {
+            if (rank == 0)
+                std::cerr << "Error: HOME environment variable not set.\n";
+            throw std::runtime_error("HOME not set");
+        }
+        // Prepend home to the user-provided relative path
+        base_path = fs::path(home) / argv[argc - 1];
+    } else {
+        // Default fallback if no argument is provided
+        const char* home = std::getenv("HOME");
+        if (!home) {
+            if (rank == 0)
+                std::cerr << "Error: HOME environment variable not set and no base path provided.\n";
+            throw std::runtime_error("HOME not set and no base path provided");
+        }
+        base_path = fs::path(home) / "DNNProxy";
+    }
+
+    if (!fs::exists(base_path) || !fs::is_directory(base_path)) {
+        if (rank == 0)
+            std::cerr << "Error: DNNProxy folder does not exist at: " << base_path << "\n";
+        throw std::runtime_error("DNNProxy folder not found");
+    }
+
+    return base_path;
+}
+
 
 /**
  * @brief Computes the average and standard deviation of a list of message sizes.

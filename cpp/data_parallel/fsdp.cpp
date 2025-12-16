@@ -13,6 +13,8 @@
 #include <time.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <filesystem>
+namespace fs = std::filesystem;
 
 #include <ccutils/mpi/mpi_timers.hpp>
 #include <ccutils/mpi/mpi_macros.hpp>
@@ -36,7 +38,7 @@ CCUTILS_MPI_TIMER_DEF(runtime)
 
 //default values
 #define WARM_UP 8
-#define RUNS 10
+#define RUNS 50
 
 
 void run_fsdp(Tensor<float>** shard_params,
@@ -123,16 +125,16 @@ void run_fsdp(Tensor<float>** shard_params,
     }
 }
 
-int main(int argc, char* argv[]){
+int main(int argc, char* argv[]) {
     MPI_Init(&argc, &argv);
 
     int world_size, rank;
     MPI_Comm_size(MPI_COMM_WORLD, &world_size);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-    if (argc < 4) {
+    if (argc < 4) { //TODO: remove the save_parameters argument
         if (rank == 0)
-            std::cout << "Usage: mpirun -n <world_size> ./fsdp <model_name> <num_units> <sharding_factor> <save_parameters>\n";
+            std::cout << "Usage: mpirun -n <world_size> ./fsdp <model_name> <num_units> <sharding_factor> <save_parameters> <base_path>\n";
         MPI_Finalize();
         return -1;
     }
@@ -143,11 +145,25 @@ int main(int argc, char* argv[]){
     bool save_parameters = (argc > 4) ? (std::string(argv[4]) == "true") : false;
 
     assert(world_size % sharding_factor == 0);
+    //TODO: assert num_layers % num_units == 0 when num_layers info is available
 
-    // Model stats
-    const char* home = std::getenv("HOME");
-    std::string file_path = std::string(home) + "/DNNProxy/model_stats/" + model_name + ".txt";
-    std::map<std::string, uint64_t> model_stats = get_model_stats(file_path); // get model stats from file
+     // --- Get DNNProxy base path ---
+    fs::path repo_path = get_dnnproxy_base_path(argc, argv, rank);
+    if (repo_path.empty()) {
+        MPI_Finalize();
+        return -1;  // DNNProxy not found
+    }
+
+    // --- Construct model stats file path ---
+    fs::path file_path = repo_path / "model_stats" / (model_name + ".txt");
+    if (!fs::exists(file_path)) {
+        if (rank == 0)
+            std::cerr << "Error: model stats file does not exist: " << file_path << "\n";
+        MPI_Finalize();
+        return -1;
+    }
+
+    std::map<std::string, uint64_t> model_stats = get_model_stats(file_path.string()); // get model stats from file
 
     uint64_t total_model_size = model_stats["modelSize"];
     uint local_batch_size = model_stats["batchSize"];
