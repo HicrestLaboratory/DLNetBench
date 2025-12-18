@@ -140,11 +140,9 @@ def plot_barrier_scatter_by_bucket(df, model_name, world_size, networks=["ib", "
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / f"barrier_scatter_{model_name}_ws{world_size}.png"
     plt.savefig(output_path)
-    plt.show()
-
 
 if __name__ == "__main__":
-    df = get_dp_dataframe()
+    df = get_metrics_dataframe()
     colors = create_color_map(["ib", "eth", "boost_usr_prod"])
 
     networks_labels = {

@@ -58,6 +58,9 @@ The Python script **run_on_leonardo** ensures that the nodes for the experiments
 python run_on_leonardo.py --csv ../machines/Leonardo/leo_map.txt --jobs jobs.yaml
 ```
 
+### Service Level (Leonardo)
+On Leonardo, the default service level is 0. To use a different service level, set the `NCCL_IB_SL` and `UCX_IB_SL` environment variables for NCCL and MPI, respectively.
+
 ## License
 
 This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
