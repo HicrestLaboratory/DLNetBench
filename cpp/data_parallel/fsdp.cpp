@@ -225,12 +225,23 @@ int main(int argc, char* argv[]) {
         CCUTILS_MPI_TIMER_STOP(runtime);
     } 
 
+    char host_name[MPI_MAX_PROCESSOR_NAME];
+	char (*host_names)[MPI_MAX_PROCESSOR_NAME];
+	int namelen,bytes,n,color;
+	MPI_Get_processor_name(host_name,&namelen);
+	#ifdef FORCE_INTERNODE_ONLY
+		color = myproc;
+		sprintf(host_name + namelen, "_%d", myproc);
+		namelen = strlen(host_name);
+	#endif
+
     // Use CCUTILS sections to print
     CCUTILS_MPI_SECTION_DEF(fsdp, "FSDP metrics")
     CCUTILS_SECTION_JSON_PUT(fsdp, "runtime", __timer_vals_runtime)
     CCUTILS_SECTION_JSON_PUT(fsdp, "allgather", __timer_vals_allgather)
     CCUTILS_SECTION_JSON_PUT(fsdp, "reduce_scatter", __timer_vals_reduce_scatter)
     CCUTILS_SECTION_JSON_PUT(fsdp, "barrier", __timer_vals_barrier)
+    CCUTILS_SECTION_JSON_PUT(fsdp, "hostname", host_name);
 
 
     CCUTILS_MPI_GLOBAL_JSON_PUT(fsdp, "model_size_bytes", total_model_size*sizeof(float))
