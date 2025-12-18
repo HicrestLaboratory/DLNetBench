@@ -2,8 +2,13 @@
 *dp
 *fsdp
 
-#vscode folder
+#Other
 *vscode
+*.ipynb*
+*.txt
 
 #Python cache
 __pycache__/
+
+#SbatchMan
+SbatchMan*

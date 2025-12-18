@@ -1,11 +1,6 @@
-import json
-import pandas as pd
 import matplotlib.pyplot as plt
-import sbatchman as sbm
 import sys
 import numpy as np
-import os
-from scipy.stats import gmean 
 from pathlib import Path
 import sys
 
@@ -13,7 +8,7 @@ project_root = Path().resolve().parent  # adjust .parent / .parent.parent as nee
 sys.path.append(str(project_root))
 from py_utils.utils import create_color_map, create_marker_map, format_bytes
 
-from parser_dp import *
+from parser import *
 
 FONT_TITLE = 18
 FONT_AXES = 18
@@ -26,6 +21,57 @@ plt.rc('xtick', labelsize=FONT_TICKS)   # fontsize of the tick labels
 plt.rc('ytick', labelsize=FONT_TICKS)   # fontsize of the tick labels
 plt.rc('legend', fontsize=FONT_LEGEND)  # legend fontsize
 plt.rc('figure', titlesize=FONT_TITLE)  # fontsize of the figure title
+
+
+def plot_runtime_scaling(df, model_name, bucket_size=None, local_batch_size=None, runs_per_rank=50, networks=["ib", "eth"], colors=None, networks_labels=None):
+    """
+    Plot runtime per step vs world_size for data parallel scaling. Ideal scaling is a flat line starting from the first world_size.
+    """
+    if colors is None:
+        colors = {"ib": "orange", "eth": "blue"}
+    if networks_labels is None:
+        networks_labels = {net: net for net in networks}
+    
+    filtered_df = df[df["model_name"] == model_name]
+    if bucket_size is not None:
+        filtered_df = filtered_df[filtered_df["num_buckets"] == bucket_size]
+
+    plt.figure(figsize=(10,6))
+
+    for net in networks:
+        job_df = filtered_df[filtered_df["network"] == net].copy()
+        if job_df.empty:
+            continue  # skip networks with no data
+
+        # runtime medio per step aggregando su rank e run
+        job_df["run_index"] = job_df.groupby("rank").cumcount() % runs_per_rank
+        agg_df = job_df.groupby(["world_size", "run_index"])["runtime_s"].mean().reset_index()
+        mean_runtime = agg_df.groupby("world_size")["runtime_s"].mean()
+
+        # ordinamento per sicurezza
+        ws = np.array(sorted(mean_runtime.index))
+        rt = mean_runtime.loc[ws].values
+
+        label_net = networks_labels.get(net, net)
+        plt.plot(ws, rt, "o-", color=colors.get(net, "gray"), label=label_net)
+
+        # linea ideale: runtime costante al valore del primo world_size
+        # ideal_runtime = np.full(ws.shape, rt[0], dtype=float)
+        # # plt.plot(ws, ideal_runtime, "--", color=colors.get(net, "gray"), alpha=0.5, label="Ideal" if net==networks[0] else None)
+
+    plt.xlabel("World Size")
+    plt.ylabel("Time (s)")
+    plt.title(f"Data Parallel Scaling - Model: {model_name}, Local Batch: {local_batch_size}")
+    plt.xticks(ws)
+    plt.grid(True, linestyle="--", linewidth=0.5)
+    plt.legend()
+    plt.tight_layout()
+    #save png to file
+    output_dir = Path("plots")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    bucket_str = f"_b{bucket_size}" if bucket_size is not None else ""
+    output_path = output_dir / f"dp_scaling_{model_name}{bucket_str}_lbs{local_batch_size}.png"
+    plt.savefig(output_path)
 
 
 def plot_barrier_scatter_by_bucket(df, model_name, world_size, networks=["ib", "eth"], colors=None, networks_labels=None, runs_per_rank=50):
@@ -106,6 +152,17 @@ if __name__ == "__main__":
         "eth": "HAICGU-eth",
         "boost_usr_prod": "boost_usr_prod",
     }
+
+    plot_runtime_scaling(
+        df,                     # your DataFrame
+        model_name="vit_h_16_128",
+        bucket_size=20,
+        local_batch_size=128,
+        runs_per_rank=50,
+        networks=["ib", "eth", "boost_usr_prod"],  # networks to plot
+        colors=colors,
+        networks_labels=networks_labels
+    )
 
 
     plot_barrier_scatter_by_bucket(
