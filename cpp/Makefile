@@ -1,7 +1,10 @@
-WITH_MPI ?= 1
+WITH_MPI ?= 1 #TODO: add support for NCCL, RCCL and CoCLL  
+PROXY_CUDA ?= 0 # enable cuda
+PROXY_HIP ?= 0 # enable hip
+HALF ?= 0 # enable half precision (requires PROXY_CUDA or PROXY_HIP)
 
 CXX := mpicxx
-CXXFLAGS := -O3 -Wall -std=c++17
+CXXFLAGS := -O3 -std=c++17
 
 ifndef CCUTILS_INCLUDE
 $(warning CCUTILS_INCLUDE is not set!)
@@ -9,15 +12,43 @@ $(warning Please set CCUTILS_INCLUDE to the include directory of ccutils)
 $(error Example: install by running the provided install.sh)
 endif
 
+# Check that CUDA and HIP are not both enabled
+ifeq ($(PROXY_CUDA),1)
+    ifeq ($(PROXY_HIP),1)
+        $(error Cannot enable both PROXY_CUDA and PROXY_HIP at the same time)
+    endif
+    CXX := nvcc
+    CXXFLAGS += -DPROXY_CUDA
+    CXXFLAGS += -DCCUTILS_ENABLE_CUDA=ON
+endif
+
+ifeq ($(PROXY_HIP),1)
+    CXX := hipcc
+    CXXFLAGS += -DPROXY_HIP
+    CXXFLAGS += -DCCUTILS_ENABLE_HIP=ON
+endif
+
+# HALF_PRECISION iff CUDA or HIP is enabled
+ifeq ($(HALF),1)
+    ifneq ($(PROXY_CUDA),1)
+        ifneq ($(PROXY_HIP),1)
+            $(error HALF_PRECISION requires either PROXY_CUDA or PROXY_HIP to be enabled)
+        endif
+    endif
+    CXXFLAGS += -DHALF_PRECISION
+endif
+
+
 CXXFLAGS += -I$(CCUTILS_INCLUDE)
 
 ifeq ($(WITH_MPI),1)
+    export OMPI_MCA_opal_cuda_support=1
     MPI_CFLAGS := $(shell mpicxx --showme:compile)
     MPI_LIBS   := $(shell mpicxx --showme:link)
     CXXFLAGS  += $(MPI_CFLAGS) -DWITH_MPI -DCCUTILS_ENABLE_MPI
 endif
 
-DP_PATH = ./data_parallel/
+DP_PATH = ./data_parallel
 
 all: data_parallel
 

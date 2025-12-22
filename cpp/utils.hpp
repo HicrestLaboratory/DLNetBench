@@ -19,6 +19,16 @@
 #include <filesystem>
 #include <cstdlib>
 
+#ifdef PROXY_CUDA   
+    #include <cuda_runtime.h>
+    #include <ccutils/cuda/cuda_macros.hpp>
+#endif
+
+#ifdef PROXY_HIP
+    #include <hip/hip_runtime.h>
+    #include "tmp_ccutils_hip.hpp"
+#endif
+
 using json = nlohmann::json;
 namespace fs = std::filesystem;
 
@@ -110,7 +120,7 @@ std::string extract_value(const std::string &line) {
 
 /**
  * @brief Reads model statistics from a stats file and returns them in a map
- *
+ *TODO: change thi func and use a JSON instead
  * The file has this format:
  *   - Forward Flops:<value>
  *   - Backward Flops:<value>
@@ -217,8 +227,6 @@ uint count_layers(std::string filename){
 enum class Device { CPU, GPU };
 
 
-//TODO: support GPU tensors
-
 /**
 * @class Tensor
 * @brief A lightweight wrapper for a contiguous buffer of data that can reside on CPU or GPU.
@@ -234,7 +242,6 @@ public:
     T* data = nullptr;
     uint64_t size = 0;
 
-
     /**
     * @brief Constructs a tensor of given size on a specified device.
     *
@@ -243,17 +250,48 @@ public:
     * @param size_ Number of elements in the tensor
     * @param dev Device type (CPU by default)
     */
-    Tensor(uint64_t size_, Device dev = Device::CPU) : size(size_) {
-        if constexpr (device == Device::CPU) data = (T*)calloc(size, sizeof(T));
+    explicit Tensor(uint64_t size_) : size(size_) {
+        if constexpr (device == Device::CPU) {
+            data = static_cast<T*>(calloc(size, sizeof(T)));
+            if (!data)
+                throw std::runtime_error("Failed to allocate CPU memory");
+        }
+        else if constexpr (device == Device::GPU) {
+    #if defined(PROXY_CUDA)
+            CCUTILS_CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&data),
+                        size * sizeof(T)));
+            CCUTILS_CUDA_CHECK(cudaMemset(data, 0, size * sizeof(T)));
+    #elif defined(PROXY_HIP)
+            CCUTILS_HIP_CHECK(hipMalloc(reinterpret_cast<void**>(&data),
+                        size * sizeof(T)));
+            CCUTILS_HIP_CHECK(hipMemset(data, 0, size * sizeof(T)););
+    #else
+            static_assert(device != Device::GPU,
+                        "GPU support not enabled at compile time");
+    #endif
+        }
+        else {
+            static_assert(device == Device::CPU || device == Device::GPU,
+                        "Unsupported device type");
+        }
     }
 
     /**
     * @brief Destructor that frees the allocated memory depending on the device.
     */
     ~Tensor() {
-        if(data) {
-            if(device == Device::CPU) free(data);
-            // else cudaFree(data);
+        if (data) {
+            if constexpr (device == Device::CPU) {
+                free(data);
+            }
+            else if constexpr (device == Device::GPU) {
+    #if defined(PROXY_CUDA)
+                CCUTILS_CUDA_FREE_SAFE(data);
+    #elif defined(PROXY_HIP)
+                CCUTILS_HIP_FREE_SAFE(data);
+    #endif
+
+            }
         }
     }
 };

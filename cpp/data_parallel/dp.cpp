@@ -6,7 +6,7 @@
  *
  *********************************************************************/
 
- //TODO: add GPU support and NCCL support later
+ //TODO: RCCLL, NCCL and CoCCL support
  #ifdef NCLL
     #include <nccl.h>
  #else
@@ -19,6 +19,7 @@
 #include <time.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <cstdint>
 #include <cstdlib> // for getenv
 
 #include <filesystem>
@@ -33,7 +34,27 @@ using nlohmann::json;
 
 #include "../utils.hpp"
 
-//TODO: handle float16 later
+// Determine device type based on compilation flags
+#if defined(PROXY_CUDA) || defined(PROXY_HIP)
+    constexpr Device device = Device::GPU;
+#else
+    constexpr Device device = Device::CPU;
+#endif
+
+// Float16 only for GPU (AMD or NVIDIA)
+#ifdef HALF_PRECISION
+    #ifdef PROXY_CUDA   // NVIDIA GPU
+        #include <cuda_fp16.h>
+        #define _FLOAT half
+    #elif defined(PROXY_HIP) // AMD GPU
+        #include <hip/hip_fp16.h>
+        #define _FLOAT half
+    #else
+        #error "HALF_PRECISION is defined but not compiling for a supported GPU."
+    #endif
+#else
+    #define _FLOAT float
+#endif
 
 // Default values
 #define NUM_B 10
@@ -57,7 +78,7 @@ CCUTILS_MPI_TIMER_DEF(barrier)
  * @param bwd_rt_per_B Backward pass runtime per bucket in microseconds.
  * @return int Always returns 0.
  */
-int run_data_parallel(Tensor<float>** grad_ptrs, Tensor<float>** sum_grad_ptrs, 
+int run_data_parallel(Tensor<_FLOAT, device>** grad_ptrs, Tensor<_FLOAT, device>** sum_grad_ptrs, 
                     int num_buckets, uint64_t* params_per_bucket,
                     uint64_t fwd_rt_whole_model, float bwd_rt_per_B){
     
@@ -72,11 +93,8 @@ int run_data_parallel(Tensor<float>** grad_ptrs, Tensor<float>** sum_grad_ptrs,
 
     int index, flag;
     for(int i=0; i<num_buckets; i++){
-        // if(i > 1)
-        //     MPI_Testany(num_buckets, grad_allreduce_reqs, &index, &flag, MPI_STATUSES_IGNORE); //Checks if any of the non-blocking allreduce requests have completed
-
         usleep(bwd_rt_per_B); //compute backward of a bucket
-
+        //TODO: add NCCL, RCCL, CoCCL all-reduce support
         MPI_Iallreduce(grad_ptrs[i]->data, sum_grad_ptrs[i]->data, params_per_bucket[i], MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD, &grad_allreduce_reqs[i]);	
     }
 
@@ -90,7 +108,6 @@ int main(int argc, char* argv[]) {
     int rank, world_size;
 
     int num_buckets = NUM_B;
-
     if(argc < 3){
         std::cout << "Usage: mpirun -n <world_size> ./dp <model_name> <num_buckets> <base_path>\n";
         return -1;
@@ -132,17 +149,16 @@ int main(int argc, char* argv[]) {
     for (int i = 0; i < num_buckets; i++) {
         params_per_bucket[i] = base_params_per_bucket + (i < remainder ? 1 : 0); // distribute remainder across the buckets
     }
-        
-    
+            
     MPI_Init(&argc,&argv);
     MPI_Comm_size(MPI_COMM_WORLD, &world_size);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-    Tensor<float>* grad_ptrs[num_buckets];
-    Tensor<float>* sum_grad_ptrs[num_buckets];
+    Tensor<_FLOAT, device>* grad_ptrs[num_buckets];
+    Tensor<_FLOAT, device>* sum_grad_ptrs[num_buckets];
     for(int i=0; i<num_buckets; i++){
-        grad_ptrs[i] = new Tensor<float>(params_per_bucket[i], Device::CPU); // switch to Device::GPU later
-        sum_grad_ptrs[i] = new Tensor<float>(params_per_bucket[i], Device::CPU);
+        grad_ptrs[i] = new Tensor<_FLOAT, device>(params_per_bucket[i]);
+        sum_grad_ptrs[i] = new Tensor<_FLOAT, device>(params_per_bucket[i]);
     }
 
     MPI_Barrier(MPI_COMM_WORLD);
@@ -183,8 +199,8 @@ int main(int argc, char* argv[]) {
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "fwd_rt_whole_model_s", fwd_rt_whole_model)
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "bwd_rt_per_bucket_s", bwd_rt_per_B)
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "total_model_size_params", total_model_size)
-    CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "msg_size_avg_bytes", msg_size_avg*sizeof(float))
-    CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "msg_size_std_bytes", msg_size_std*sizeof(float))
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "msg_size_avg_bytes", msg_size_avg*sizeof(_FLOAT))
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "msg_size_std_bytes", msg_size_std*sizeof(_FLOAT))
 
     CCUTILS_SECTION_JSON_PUT(dp, "runtimes", __timer_vals_runtime);
     CCUTILS_SECTION_JSON_PUT(dp, "barrier_time_us", __timer_vals_barrier);
