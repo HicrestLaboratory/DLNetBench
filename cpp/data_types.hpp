@@ -42,4 +42,10 @@
     using CommType = MPI_Comm;
 #endif
 
+#ifdef PROXY_ENABLE_CUDA
+    using _Stream = cudaStream_t;
+#elif defined(PROXY_ENABLE_HIP)
+    using _Stream = hipStream_t;
+#endif
+
 #endif // DATA_TYPES_HPP

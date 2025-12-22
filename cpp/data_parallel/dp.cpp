@@ -7,11 +7,17 @@
  *********************************************************************/
 
  //TODO: RCCLL, NCCL and CoCCL support
- #ifdef NCLL
+ #ifdef PROXY_ENABLE_NCLL
     #include <nccl.h>
- #else
-    #include <mpi.h>
+    ncclComm_t world_comm;
 #endif
+
+#ifdef PROXY_ENABLE_RCCL
+    #include <rccl.h>
+    rcclComm_t world_comm;
+#endif
+
+#include <mpi.h>
 
 #include <unistd.h>
 #include <stdio.h>
@@ -30,6 +36,7 @@ using nlohmann::json;
 
 #include <ccutils/mpi/mpi_timers.hpp>
 #include <ccutils/mpi/mpi_macros.hpp>
+#include <ccutils/cuda/cuda_macros.hpp>
 #include <ccutils/macros.hpp>
 
 #include "../utils.hpp"
@@ -72,21 +79,56 @@ int run_data_parallel(Tensor<_FLOAT, device>** grad_ptrs, Tensor<_FLOAT, device>
     //forward compute
     usleep(fwd_rt_whole_model);
     //backward (idea is to overlap all-reduce with backward compute)
+
+    #ifdef PROXY_ENABLE_NCCL //To overlap with *CCL use different streams
+    _Stream stream[num_buckets];
+    for(int i=0; i<num_buckets; i++){
+    #if defined(PROXY_ENABLE_CUDA)
+        CCUTILS_CUDA_CHECK(cudaStreamCreate(&stream[i]))
+    #elif defined(PROXY_ENABLE_HIP)
+        hipStreamCreate(&stream[i]);
+    #endif
+    }
+    #endif
+
+    #if !defined(PROXY_ENABLE_NCCL) || defined(PROXY_ENABLE_MPI_AWARE_CUDA) // MPI use case
     MPI_Request grad_allreduce_reqs[num_buckets];
-    //must initialize with MPI_REQUEST_NULL
-    for(int i=0; i<num_buckets; i++)
+    for (int i = 0; i < num_buckets; i++) {
         grad_allreduce_reqs[i] = MPI_REQUEST_NULL;
+    }
+    #endif
 
     int index, flag;
     for(int i=0; i<num_buckets; i++){
         usleep(bwd_rt_per_B); //compute backward of a bucket
-        //FIXME (MPI CUDA-aware has problem with Iallreduce...)
-	MPI_Iallreduce(grad_ptrs[i]->data, sum_grad_ptrs[i]->data, params_per_bucket[i], MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD, &grad_allreduce_reqs[i]);	
+
+        #if defined(PROXY_ENABLE_NCCL) || defined(PROXY_ENABLE_RCCL)
+        // Launch NCCL all-reduce on the dedicated stream
+        ncclAllReduce((const void*)grad_ptrs[i]->data, (void*)sum_grad_ptrs[i]->data,
+                      params_per_bucket[i], NCCL_FLOAT_TYPE, ncclSum,
+                      world_comm, stream[i]);
+        #else     
+	        MPI_Iallreduce(grad_ptrs[i]->data, sum_grad_ptrs[i]->data, params_per_bucket[i], MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD, &grad_allreduce_reqs[i]);
+        #endif
     }
 
-    CCUTILS_MPI_TIMER_START(barrier)
-    MPI_Waitall(num_buckets, grad_allreduce_reqs, MPI_STATUSES_IGNORE);
-    CCUTILS_MPI_TIMER_STOP(barrier) 
+    #if defined(PROXY_ENABLE_NCCL) || defined(PROXY_ENABLE_RCCL)
+    // Synchronize all streams 
+    //TODO: add timer
+    for(int i=0; i<num_buckets; i++){
+    #if defined(PROXY_ENABLE_CUDA)
+        CCUTILS_CUDA_CHECK(cudaStreamSynchronize(stream[i]));
+        CCUTILS_CUDA_CHECK(cudaStreamDestroy(stream[i]));
+    #elif defined(PROXY_ENABLE_HIP) //TODO: add CCUTILS_HIP
+        hipStreamSynchronize(stream[i]);
+        hipStreamDestroy(stream[i]);
+    #endif
+    }
+    #else
+        CCUTILS_MPI_TIMER_START(barrier)
+        MPI_Waitall(num_buckets, grad_allreduce_reqs, MPI_STATUSES_IGNORE);
+        CCUTILS_MPI_TIMER_STOP(barrier) 
+    #endif
     return 0;
 }
 
@@ -94,7 +136,7 @@ int main(int argc, char* argv[]) {
     int rank, world_size;
 
     int num_buckets = NUM_B;
-    if(argc < 3){
+    if(argc < 4){
         std::cout << "Usage: mpirun -n <world_size> ./dp <model_name> <num_buckets> <base_path>\n";
         return -1;
     }
@@ -104,34 +146,23 @@ int main(int argc, char* argv[]) {
         num_buckets = std::stoi(argv[2]);
     }
 
-     // --- Get DNNProxy base path ---
-    fs::path repo_path = get_dnnproxy_base_path(argc, argv, rank);
-    if (repo_path.empty()) {
-        MPI_Finalize();
-        return -1;  // DNNProxy not found
-    }
-
     // --- Construct model stats file path ---
+    fs::path repo_path = get_dnnproxy_base_path(argc, argv, rank);
     fs::path file_path = repo_path / "model_stats" / (model_name + ".txt");
     if (!fs::exists(file_path)) {
-        if (rank == 0)
-            std::cerr << "Error: model stats file does not exist: " << file_path << "\n";
-        MPI_Finalize();
+        std::cerr << "Error: model stats file does not exist: " << file_path << "\n";
         return -1;
     }
+
     std::map<std::string, uint64_t> model_stats = get_model_stats(file_path); // get model stats from file
-    
     uint64_t fwd_rt_whole_model = model_stats["avgForwardTime"]; // in us
     float bwd_rt_per_B = (model_stats["avgBackwardTime"]) / num_buckets; // in us
-
     uint local_batch_size = model_stats["batchSize"];
-
     uint64_t total_model_size = model_stats["modelSize"]; // number of parameters
+    
     uint64_t base_params_per_bucket = total_model_size / num_buckets;
     uint64_t remainder = total_model_size % num_buckets;
-
     uint64_t params_per_bucket[num_buckets];
-
     for (int i = 0; i < num_buckets; i++) {
         params_per_bucket[i] = base_params_per_bucket + (i < remainder ? 1 : 0); // distribute remainder across the buckets
     }
@@ -139,8 +170,16 @@ int main(int argc, char* argv[]) {
     MPI_Init(&argc,&argv);
     MPI_Comm_size(MPI_COMM_WORLD, &world_size);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-
     CCUTILS_MPI_INIT
+
+    #ifdef PROXY_ENABLE_NCCL
+    ncclUniqueId id;
+    if (rank == 0) {
+        ncclGetUniqueId(&id); // Only rank 0 generates
+    }
+    MPI_Bcast(&id, sizeof(id), MPI_BYTE, 0, MPI_COMM_WORLD);
+    ncclCommInitRank(&world_comm, world_size, id, rank);
+    #endif
 
     Tensor<_FLOAT, device>* grad_ptrs[num_buckets];
     Tensor<_FLOAT, device>* sum_grad_ptrs[num_buckets];
@@ -192,6 +231,10 @@ int main(int argc, char* argv[]) {
     CCUTILS_SECTION_JSON_PUT(dp, "hostname", host_name);
 
     CCUTILS_MPI_SECTION_END(dp);
+
+    #ifdef PROXY_ENABLE_NCLL
+    ncclCommDestroy(world_comm);
+    #endif
 
     MPI_Finalize();
 }
