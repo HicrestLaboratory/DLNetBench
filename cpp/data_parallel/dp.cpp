@@ -94,8 +94,8 @@ int run_data_parallel(Tensor<_FLOAT, device>** grad_ptrs, Tensor<_FLOAT, device>
     int index, flag;
     for(int i=0; i<num_buckets; i++){
         usleep(bwd_rt_per_B); //compute backward of a bucket
-        //TODO: add NCCL, RCCL, CoCCL all-reduce support
-        MPI_Iallreduce(grad_ptrs[i]->data, sum_grad_ptrs[i]->data, params_per_bucket[i], MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD, &grad_allreduce_reqs[i]);	
+        //TODO: add NCCL, RCCL, CoCCL all-reduce support (MPI CUDA-aware has problem with Iallreduce...)
+	MPI_Iallreduce(grad_ptrs[i]->data, sum_grad_ptrs[i]->data, params_per_bucket[i], MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD, &grad_allreduce_reqs[i]);	
     }
 
     CCUTILS_MPI_TIMER_START(barrier)
@@ -203,7 +203,8 @@ int main(int argc, char* argv[]) {
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "total_model_size_params", total_model_size)
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "msg_size_avg_bytes", msg_size_avg*sizeof(_FLOAT))
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "msg_size_std_bytes", msg_size_std*sizeof(_FLOAT))
-
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "device", (device == Device::CPU) ? "CPU" : "GPU")
+    
     CCUTILS_SECTION_JSON_PUT(dp, "runtimes", __timer_vals_runtime);
     CCUTILS_SECTION_JSON_PUT(dp, "barrier_time_us", __timer_vals_barrier);
     CCUTILS_SECTION_JSON_PUT(dp, "hostname", host_name);
