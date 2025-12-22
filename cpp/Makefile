@@ -19,13 +19,13 @@ ifeq ($(PROXY_CUDA),1)
     endif
     CXX := nvcc
     CXXFLAGS += -DPROXY_CUDA
-    CXXFLAGS += -DCCUTILS_ENABLE_CUDA=ON
+    CXXFLAGS += -DCCUTILS_ENABLE_CUDA
 endif
 
 ifeq ($(PROXY_HIP),1)
     CXX := hipcc
     CXXFLAGS += -DPROXY_HIP
-    CXXFLAGS += -DCCUTILS_ENABLE_HIP=ON
+    CXXFLAGS += -DCCUTILS_ENABLE_HIP
 endif
 
 # HALF_PRECISION iff CUDA or HIP is enabled
@@ -42,10 +42,18 @@ endif
 CXXFLAGS += -I$(CCUTILS_INCLUDE)
 
 ifeq ($(WITH_MPI),1)
-    export OMPI_MCA_opal_cuda_support=1
-    MPI_CFLAGS := $(shell mpicxx --showme:compile)
-    MPI_LIBS   := $(shell mpicxx --showme:link)
+export OMPI_MCA_opal_cuda_support=1
+MPI_CFLAGS := $(shell mpicxx --showme:compile)
+MPI_LIBS   := $(shell mpicxx --showme:link)
+    
+ifeq ($(PROXY_CUDA),1)
+# Filter out -pthread for nvcc
+CXXFLAGS += $(filter-out -pthread, $(MPI_CFLAGS)) -DWITH_MPI -DCCUTILS_ENABLE_MPI
+MPI_LIBS := $(filter-out -pthread,$(MPI_LIBS))
+else
     CXXFLAGS  += $(MPI_CFLAGS) -DWITH_MPI -DCCUTILS_ENABLE_MPI
+endif
+
 endif
 
 DP_PATH = ./data_parallel
