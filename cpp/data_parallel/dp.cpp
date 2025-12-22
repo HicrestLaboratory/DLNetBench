@@ -154,6 +154,8 @@ int main(int argc, char* argv[]) {
     MPI_Comm_size(MPI_COMM_WORLD, &world_size);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
+    CCUTILS_MPI_INIT
+
     Tensor<_FLOAT, device>* grad_ptrs[num_buckets];
     Tensor<_FLOAT, device>* sum_grad_ptrs[num_buckets];
     for(int i=0; i<num_buckets; i++){
