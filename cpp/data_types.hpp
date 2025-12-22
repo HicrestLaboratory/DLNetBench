@@ -8,7 +8,6 @@
 
 // Determine the floating-point type
 #ifdef HALF_PRECISION
-
     // Half precision supported only on GPU
     #if defined(PROXY_CUDA)
         #include <cuda_fp16.h>
@@ -34,6 +33,13 @@
     #ifdef PROXY_ENABLE_NCCL
         #define NCCL_FLOAT_TYPE ncclFloat
     #endif
+#endif
+
+// Communicator type
+#ifdef PROXY_ENABLE_NCCL
+    using CommType = ncclComm_t;
+#else
+    using CommType = MPI_Comm;
 #endif
 
 #endif // DATA_TYPES_HPP
