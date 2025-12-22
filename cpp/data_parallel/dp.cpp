@@ -33,27 +33,13 @@ using nlohmann::json;
 #include <ccutils/macros.hpp>
 
 #include "../utils.hpp"
+#include "../data_types.hpp"
 
 // Determine device type based on compilation flags
-#if defined(PROXY_CUDA) || defined(PROXY_HIP)
+#if defined(PROXY_ENABLE_CUDA) || defined(PROXY_ENABLE_HIP)
     constexpr Device device = Device::GPU;
 #else
     constexpr Device device = Device::CPU;
-#endif
-
-// Float16 only for GPU (AMD or NVIDIA)
-#ifdef HALF_PRECISION
-    #ifdef PROXY_CUDA   // NVIDIA GPU
-        #include <cuda_fp16.h>
-        #define _FLOAT half
-    #elif defined(PROXY_HIP) // AMD GPU
-        #include <hip/hip_fp16.h>
-        #define _FLOAT half
-    #else
-        #error "HALF_PRECISION is defined but not compiling for a supported GPU."
-    #endif
-#else
-    #define _FLOAT float
 #endif
 
 // Default values
@@ -94,7 +80,7 @@ int run_data_parallel(Tensor<_FLOAT, device>** grad_ptrs, Tensor<_FLOAT, device>
     int index, flag;
     for(int i=0; i<num_buckets; i++){
         usleep(bwd_rt_per_B); //compute backward of a bucket
-        //TODO: add NCCL, RCCL, CoCCL all-reduce support (MPI CUDA-aware has problem with Iallreduce...)
+        //FIXME (MPI CUDA-aware has problem with Iallreduce...)
 	MPI_Iallreduce(grad_ptrs[i]->data, sum_grad_ptrs[i]->data, params_per_bucket[i], MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD, &grad_allreduce_reqs[i]);	
     }
 
@@ -182,16 +168,12 @@ int main(int argc, char* argv[]) {
 	char (*host_names)[MPI_MAX_PROCESSOR_NAME];
 	int namelen,bytes,n,color;
 	MPI_Get_processor_name(host_name,&namelen);
-	#ifdef FORCE_INTERNODE_ONLY
-		color = myproc;
-		sprintf(host_name + namelen, "_%d", myproc);
-		namelen = strlen(host_name);
-	#endif
-    CCUTILS_MPI_SECTION_DEF(dp, "Data Parallelism")
 
     std::vector<uint64_t> bucket_sizes(params_per_bucket,
                                    params_per_bucket + num_buckets);
     std::pair<float, float> msg_stats = compute_msg_stats(bucket_sizes, 1);
+
+    CCUTILS_MPI_SECTION_DEF(dp, "Data Parallelism")
     float msg_size_avg = msg_stats.first;
     float msg_size_std = msg_stats.second;
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "model_name", model_name)

@@ -23,8 +23,14 @@ namespace fs = std::filesystem;
 #include <ccutils/mpi/mpi_macros.hpp>
 
 #include "../utils.hpp"
+#include "../data_types.hpp"
 
-//TODO: integrate ccutils and make more fine-grained timers (follow dp.cpp structure)
+// Determine device type based on compilation flags
+#if defined(PROXY_CUDA) || defined(PROXY_HIP)
+    constexpr Device device = Device::GPU;
+#else
+    constexpr Device device = Device::CPU;
+#endif
 
 /*
  * Parameters from users: n_units, save_parameters (avoid allgather during backward), sharding_factor F:
@@ -44,9 +50,9 @@ CCUTILS_MPI_TIMER_DEF(runtime)
 #define RUNS 10
 
 
-void run_fsdp(Tensor<float>** shard_params,
-              Tensor<float>** layer_params,
-              Tensor<float>** allreduce_params,
+void run_fsdp(Tensor<_FLOAT, device>** shard_params,
+              Tensor<_FLOAT, device>** layer_params,
+              Tensor<_FLOAT, device>** allreduce_params,
               float fwd_rt_whole_unit,
               float bwd_rt_whole_unit,
               uint num_units,
@@ -128,6 +134,8 @@ void run_fsdp(Tensor<float>** shard_params,
 int main(int argc, char* argv[]) {
     MPI_Init(&argc, &argv);
 
+    CCUTILS_MPI_INIT
+
     int world_size, rank;
     MPI_Comm_size(MPI_COMM_WORLD, &world_size);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
@@ -144,7 +152,7 @@ int main(int argc, char* argv[]) {
     uint sharding_factor = std::stoi(argv[3]);
 
     assert(world_size % sharding_factor == 0);
-    //TODO: assert num_layers % num_units == 0 when num_layers info is available
+    //FIXME: assert num_layers % num_units == 0 when num_layers info is available
 
      // --- Get DNNProxy base path ---
     fs::path repo_path = get_dnnproxy_base_path(argc, argv, rank);
@@ -194,15 +202,15 @@ int main(int argc, char* argv[]) {
     MPI_Comm_split(MPI_COMM_WORLD, shard_index_color, rank, &allreduce_comm);
 
     // Allocate buffers (padded)
-    Tensor<float>* shard_params[num_units];
-    Tensor<float>* layer_params[num_units];
-    Tensor<float>* allreduce_params[num_units];
+    Tensor<_FLOAT, device>* shard_params[num_units];
+    Tensor<_FLOAT, device>* layer_params[num_units];
+    Tensor<_FLOAT, device>* allreduce_params[num_units];
 
     for (uint u = 0; u < num_units; u++) {
-        shard_params[u] = new Tensor<float>(max_params_per_shard[u], Device::CPU);
-        layer_params[u] = new Tensor<float>(max_params_per_shard[u] * sharding_factor, Device::CPU);
+        shard_params[u] = new Tensor<_FLOAT, device>(max_params_per_shard[u]);
+        layer_params[u] = new Tensor<_FLOAT, device>(max_params_per_shard[u] * sharding_factor);
         if (num_replicas > 1)
-            allreduce_params[u] = new Tensor<float>(max_params_per_shard[u], Device::CPU);
+            allreduce_params[u] = new Tensor<_FLOAT, device>(max_params_per_shard[u]);
     }
 
     float fwd_rt_whole_unit = (float)fwd_rt_whole_model / num_units;
@@ -229,11 +237,6 @@ int main(int argc, char* argv[]) {
 	char (*host_names)[MPI_MAX_PROCESSOR_NAME];
 	int namelen,bytes,n,color;
 	MPI_Get_processor_name(host_name,&namelen);
-	#ifdef FORCE_INTERNODE_ONLY
-		color = myproc;
-		sprintf(host_name + namelen, "_%d", myproc);
-		namelen = strlen(host_name);
-	#endif
 
     // Use CCUTILS sections to print
     CCUTILS_MPI_SECTION_DEF(fsdp, "FSDP metrics")
@@ -271,7 +274,6 @@ int main(int argc, char* argv[]) {
 
     CCUTILS_MPI_SECTION_END(fsdp)
 
-    
     MPI_Finalize();
     return 0;
 }

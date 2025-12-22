@@ -18,13 +18,13 @@ ifeq ($(PROXY_CUDA),1)
         $(error Cannot enable both PROXY_CUDA and PROXY_HIP at the same time)
     endif
     CXX := nvcc
-    CXXFLAGS += -DPROXY_CUDA
+    CXXFLAGS += -DPROXY_ENABLE_CUDA
     CXXFLAGS += -DCCUTILS_ENABLE_CUDA
 endif
 
 ifeq ($(PROXY_HIP),1)
     CXX := hipcc
-    CXXFLAGS += -DPROXY_HIP
+    CXXFLAGS += -DPROXY_ENABLE_HIP
     CXXFLAGS += -DCCUTILS_ENABLE_HIP
 endif
 
