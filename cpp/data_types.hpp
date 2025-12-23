@@ -6,6 +6,14 @@
     #include <nccl.h>
 #endif
 
+#ifdef PROXY_ENABLE_RCCL
+    #include <rccl.h>
+#endif
+
+#if defined(PROXY_ENABLE_NCCL) || defined(PROXY_ENABLE_RCCL)
+#define PROXY_ENABLE_CCL 1 
+#endif 
+
 // Determine the floating-point type
 #ifdef HALF_PRECISION
     // Half precision supported only on GPU
@@ -37,9 +45,9 @@
 
 // Communicator type
 #ifdef PROXY_ENABLE_NCCL
-    using CommType = ncclComm_t;
+    using Proxy_CommType = ncclComm_t;
 #else
-    using CommType = MPI_Comm;
+    using Proxy_CommType = MPI_Comm;
 #endif
 
 #ifdef PROXY_ENABLE_CUDA

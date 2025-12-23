@@ -9,12 +9,12 @@
  //TODO: RCCLL, NCCL and CoCCL support
  #ifdef PROXY_ENABLE_NCLL
     #include <nccl.h>
-    ncclComm_t world_comm;
+    CommType world_comm;
 #endif
 
 #ifdef PROXY_ENABLE_RCCL
     #include <rccl.h>
-    rcclComm_t world_comm;
+    CommType world_comm;
 #endif
 
 #include <mpi.h>
@@ -26,23 +26,32 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <cstdint>
-#include <cstdlib> // for getenv
-
+#include <cstdlib>
 #include <filesystem>
-namespace fs = std::filesystem;
-
 #include <nlohmann/json.hpp>
+
+namespace fs = std::filesystem;
 using nlohmann::json;
 
+// CCUTILS headers
 #include <ccutils/mpi/mpi_timers.hpp>
 #include <ccutils/mpi/mpi_macros.hpp>
-#include <ccutils/cuda/cuda_macros.hpp>
 #include <ccutils/macros.hpp>
 
+#ifdef PROXY_ENABLE_CUDA
+    #include <ccutils/cuda/cuda_macros.hpp>
+#endif
+
+#ifdef PROXY_ENABLE_HIP
+    #include <ccutils/hip/hip_macros.hpp>
+#endif
+
+// Project headers
 #include "../utils.hpp"
 #include "../data_types.hpp"
+#include "../proxy_classes.hpp"
 
-// Determine device type based on compilation flags
+// Global variables
 #if defined(PROXY_ENABLE_CUDA) || defined(PROXY_ENABLE_HIP)
     constexpr Device device = Device::GPU;
 #else
@@ -52,7 +61,7 @@ using nlohmann::json;
 // Default values
 #define NUM_B 10
 #define WARM_UP 8
-#define RUNS 50
+#define RUNS 10
 
 CCUTILS_MPI_TIMER_DEF(runtime)
 CCUTILS_MPI_TIMER_DEF(barrier)
@@ -69,66 +78,27 @@ CCUTILS_MPI_TIMER_DEF(barrier)
  * @param params_per_bucket Array containing the number of parameters in each bucket.
  * @param fwd_rt_whole_model Forward pass runtime in microseconds.
  * @param bwd_rt_per_B Backward pass runtime per bucket in microseconds.
+ * @param comm Pointer to the Communicator object for Collective operations.
  * @return int Always returns 0.
  */
 int run_data_parallel(Tensor<_FLOAT, device>** grad_ptrs, Tensor<_FLOAT, device>** sum_grad_ptrs, 
                     int num_buckets, uint64_t* params_per_bucket,
-                    uint64_t fwd_rt_whole_model, float bwd_rt_per_B){
+                    uint64_t fwd_rt_whole_model, float bwd_rt_per_B, ProxyCommunicator* communicator) {
     
 
     //forward compute
     usleep(fwd_rt_whole_model);
     //backward (idea is to overlap all-reduce with backward compute)
 
-    #ifdef PROXY_ENABLE_NCCL //To overlap with *CCL use different streams
-    _Stream stream[num_buckets];
-    for(int i=0; i<num_buckets; i++){
-    #if defined(PROXY_ENABLE_CUDA)
-        CCUTILS_CUDA_CHECK(cudaStreamCreate(&stream[i]))
-    #elif defined(PROXY_ENABLE_HIP)
-        hipStreamCreate(&stream[i]);
-    #endif
-    }
-    #endif
-
-    #if !defined(PROXY_ENABLE_NCCL) || defined(PROXY_ENABLE_MPI_AWARE_CUDA) // MPI use case
-    MPI_Request grad_allreduce_reqs[num_buckets];
-    for (int i = 0; i < num_buckets; i++) {
-        grad_allreduce_reqs[i] = MPI_REQUEST_NULL;
-    }
-    #endif
-
     int index, flag;
     for(int i=0; i<num_buckets; i++){
-        usleep(bwd_rt_per_B); //compute backward of a bucket
-
-        #if defined(PROXY_ENABLE_NCCL) || defined(PROXY_ENABLE_RCCL)
-        // Launch NCCL all-reduce on the dedicated stream
-        ncclAllReduce((const void*)grad_ptrs[i]->data, (void*)sum_grad_ptrs[i]->data,
-                      params_per_bucket[i], NCCL_FLOAT_TYPE, ncclSum,
-                      world_comm, stream[i]);
-        #else     
-	        MPI_Iallreduce(grad_ptrs[i]->data, sum_grad_ptrs[i]->data, params_per_bucket[i], MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD, &grad_allreduce_reqs[i]);
-        #endif
+        usleep(bwd_rt_per_B); //compute backward of a bucket 
+        communicator->Iallreduce(grad_ptrs[i]->data, sum_grad_ptrs[i]->data, params_per_bucket[i], i); //start all-reduce for the bucket
     }
 
-    #if defined(PROXY_ENABLE_NCCL) || defined(PROXY_ENABLE_RCCL)
-    // Synchronize all streams 
-    //TODO: add timer
-    for(int i=0; i<num_buckets; i++){
-    #if defined(PROXY_ENABLE_CUDA)
-        CCUTILS_CUDA_CHECK(cudaStreamSynchronize(stream[i]));
-        CCUTILS_CUDA_CHECK(cudaStreamDestroy(stream[i]));
-    #elif defined(PROXY_ENABLE_HIP) //TODO: add CCUTILS_HIP
-        hipStreamSynchronize(stream[i]);
-        hipStreamDestroy(stream[i]);
-    #endif
-    }
-    #else
-        CCUTILS_MPI_TIMER_START(barrier)
-        MPI_Waitall(num_buckets, grad_allreduce_reqs, MPI_STATUSES_IGNORE);
-        CCUTILS_MPI_TIMER_STOP(barrier) 
-    #endif
+    CCUTILS_MPI_TIMER_START(barrier)
+    communicator->WaitAll(num_buckets); //wait for all all-reduce to complete
+    CCUTILS_MPI_TIMER_STOP(barrier) 
     return 0;
 }
 
@@ -172,15 +142,6 @@ int main(int argc, char* argv[]) {
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     CCUTILS_MPI_INIT
 
-    #ifdef PROXY_ENABLE_NCCL
-    ncclUniqueId id;
-    if (rank == 0) {
-        ncclGetUniqueId(&id); // Only rank 0 generates
-    }
-    MPI_Bcast(&id, sizeof(id), MPI_BYTE, 0, MPI_COMM_WORLD);
-    ncclCommInitRank(&world_comm, world_size, id, rank);
-    #endif
-
     Tensor<_FLOAT, device>* grad_ptrs[num_buckets];
     Tensor<_FLOAT, device>* sum_grad_ptrs[num_buckets];
     for(int i=0; i<num_buckets; i++){
@@ -190,16 +151,18 @@ int main(int argc, char* argv[]) {
 
     MPI_Barrier(MPI_COMM_WORLD);
 
+    MPICommunicator* communicator = new MPICommunicator(MPI_COMM_WORLD, MPI_FLOAT, num_buckets);
+
     //warmup
     for(int wmp = 0; wmp < WARM_UP; wmp++){
         run_data_parallel(grad_ptrs, sum_grad_ptrs, num_buckets, params_per_bucket,
-                         fwd_rt_whole_model, bwd_rt_per_B);
+                         fwd_rt_whole_model, bwd_rt_per_B, communicator);
     }
 
     for(int iter = 0; iter < RUNS; iter++){
         CCUTILS_MPI_TIMER_START(runtime)
         run_data_parallel(grad_ptrs, sum_grad_ptrs, num_buckets, params_per_bucket,
-                         fwd_rt_whole_model, bwd_rt_per_B);
+                         fwd_rt_whole_model, bwd_rt_per_B, communicator);
         CCUTILS_MPI_TIMER_STOP(runtime)
     }
 
@@ -225,6 +188,7 @@ int main(int argc, char* argv[]) {
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "msg_size_avg_bytes", msg_size_avg*sizeof(_FLOAT))
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "msg_size_std_bytes", msg_size_std*sizeof(_FLOAT))
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "device", (device == Device::CPU) ? "CPU" : "GPU")
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "backend", communicator->get_name())
     
     CCUTILS_SECTION_JSON_PUT(dp, "runtimes", __timer_vals_runtime);
     CCUTILS_SECTION_JSON_PUT(dp, "barrier_time_us", __timer_vals_barrier);

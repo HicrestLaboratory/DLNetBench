@@ -1,4 +1,4 @@
-WITH_MPI ?= 1 #TODO: add support for NCCL, RCCL and CoCLL  
+WITH_MPI ?= 1 # enable mpi
 PROXY_CUDA ?= 0 # enable cuda
 PROXY_HIP ?= 0 # enable hip
 HALF ?= 0 # enable half precision (requires PROXY_CUDA or PROXY_HIP)
