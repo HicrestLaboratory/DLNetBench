@@ -74,7 +74,45 @@ private:
 
 //TODO: add *CCL Communicator class
 
+#ifdef PROXY_ENABLE_CCL
+class CCLCommunicator : public ProxyCommunicator {
+public:
+    CCLCommunicator(ccl_comm_t comm, int num_streams=1) {
+        this->comm = comm;
+        this->num_streams = num_streams;
+        ccl_comm_get_rank(comm, &rank);
+        ccl_comm_get_size(comm, &comm_size);
+        this->streams = new _Stream[num_streams];
+        for(int i = 0; i < num_streams; i++) {
+            CREATE_STREAM(this->streams[i]);
+        }
+    };
 
+    void Iallreduce(const void* sendbuf, void* recvbuf, int count, int index) override{
+        ncclAllReduce(sendbuf, recvbuf, count, NCCL_FLOAT_TYPE, ncclSum,
+                      comm, streams[index]);
+    }
+
+    void WaitAll(int num_waits) override {
+        for(int i = 0; i < num_waits; i++) 
+            CCUTILS_GPU_CHECK(SYNC_STREAM(streams[i]));
+    }
+
+    void Barrier() override {
+        WaitAll(num_streams);
+    };
+
+    void Allgather(const void* sendbuf, int sendcount, void* recvbuf, int recvcount) override {
+        ncclAllGather(sendbuf, recvbuf, sendcount, NCCL_FLOAT_TYPE,
+                      comm, streams[0]);
+    };
+
+    void Reduce_Scatter_block(const void* sendbuf, void* recvbuf, int recvcount) override {
+        ncclReduceScatter(sendbuf, recvbuf, recvcount, NCCL_FLOAT_TYPE, ncclSum,
+                          comm, streams[0]);
+    };
+}
+#endif
 
 /**
 * @enum Device

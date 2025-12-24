@@ -10,6 +10,14 @@
     #include <rccl.h>
 #endif
 
+#ifdef PROXY_ENABLE_CUDA
+    #define CCUTILS_GPU_CHECK CCUTILS_CUDA_CHECK
+#endif
+
+#ifdef PROXY_ENABLE_HIP
+    #define CCUTILS_GPU_CHECK CCUTILS_HIP_CHECK
+#endif
+
 #if defined(PROXY_ENABLE_NCCL) || defined(PROXY_ENABLE_RCCL)
 #define PROXY_ENABLE_CCL 1 
 #endif 
@@ -50,10 +58,22 @@
     using Proxy_CommType = MPI_Comm;
 #endif
 
+// STREAMS
 #ifdef PROXY_ENABLE_CUDA
     using _Stream = cudaStream_t;
 #elif defined(PROXY_ENABLE_HIP)
     using _Stream = hipStream_t;
+#endif
+
+#ifdef PROXY_ENABLE_CUDA
+    #define CREATE_STREAM(stream) cudaStreamCreate(&(stream))
+    #define DESTROY_STREAM(stream) cudaStreamDestroy(stream)
+    #define SYNC_STREAM(stream) cudaStreamSynchronize(stream)
+#elif defined(PROXY_ENABLE_HIP)
+    #define CREATE_STREAM(stream) hipStreamCreate(&(stream))
+    #define DESTROY_STREAM(stream) hipStreamDestroy(stream)
+    #define SYNC_STREAM(stream) hipStreamSynchronize(stream)
+#else
 #endif
 
 #endif // DATA_TYPES_HPP
