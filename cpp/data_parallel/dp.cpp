@@ -189,8 +189,12 @@ int main(int argc, char* argv[]) {
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "msg_size_std_bytes", msg_size_std*sizeof(_FLOAT))
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "device", (device == Device::CPU) ? "CPU" : "GPU")
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "backend", communicator->get_name())
+
+    //erase warm-up elemements
+
     
     CCUTILS_SECTION_JSON_PUT(dp, "runtimes", __timer_vals_runtime);
+    __timer_vals_barrier.erase(__timer_vals_barrier.begin(), __timer_vals_barrier.begin() + WARM_UP); // remove the warm-up barriers
     CCUTILS_SECTION_JSON_PUT(dp, "barrier_time_us", __timer_vals_barrier);
     CCUTILS_SECTION_JSON_PUT(dp, "hostname", host_name);
 

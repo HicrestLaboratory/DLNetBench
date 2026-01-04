@@ -14,10 +14,14 @@
 class ProxyCommunicator {
 public:
     virtual void Iallreduce(const void* sendbuf, void* recvbuf, int count, int index) = 0;
+    virtual void Iallgather(const void* sendbuf, int sendcount,
+                            void* recvbuf, int recvcount, int index) = 0;
+    virtual void Allgather(const void* sendbuf, int sendcount,
+                           void* recvbuf, int recvcount) = 0;
+    virtual void Reduce_Scatter_block(const void* sendbuf, void* recvbuf, int recvcount) = 0;
     virtual void Barrier() = 0;
     virtual void WaitAll(int num_waits) = 0;
-    virtual void Allgather(const void* sendbuf, int sendcount, void* recvbuf, int recvcount) = 0;
-    virtual void Reduce_Scatter_block(const void* sendbuf, void* recvbuf, int recvcount) = 0;
+    virtual void Wait(int index) = 0;
     virtual void finalize() = 0;
     virtual std::string get_name() = 0;
     virtual ~ProxyCommunicator() {}
@@ -48,8 +52,16 @@ public:
         MPI_Waitall(num_waits, requests, MPI_STATUSES_IGNORE);
     };
 
+    void Wait(int index) override {
+        MPI_Wait(&requests[index], MPI_STATUS_IGNORE);
+    };
+
+    void Iallgather(const void* sendbuf, int sendcount, void* recvbuf, int recvcount, int index) override {
+        MPI_Iallgather(sendbuf, sendcount, datatype, recvbuf, recvcount, datatype, comm, &requests[index]);
+    }
+
     void Allgather(const void* sendbuf, int sendcount, void* recvbuf, int recvcount) override {
-        MPI_Allgather(sendbuf, sendcount, MPI_FLOAT, recvbuf, recvcount, MPI_FLOAT, comm);
+        MPI_Allgather(sendbuf, sendcount, datatype, recvbuf, recvcount, datatype, comm);
     };
 
     void Reduce_Scatter_block(const void* sendbuf, void* recvbuf, int recvcount) override {

@@ -43,6 +43,8 @@ namespace fs = std::filesystem;
 //timers for each collective and the whole runtime
 CCUTILS_MPI_TIMER_DEF(allgather)
 CCUTILS_MPI_TIMER_DEF(reduce_scatter)
+CCUTILS_MPI_TIMER_DEF(allgather_wait_fwd)
+CCUTILS_MPI_TIMER_DEF(allgather_wait_bwd)
 CCUTILS_MPI_TIMER_DEF(barrier)
 CCUTILS_MPI_TIMER_DEF(runtime)
 
@@ -51,7 +53,7 @@ CCUTILS_MPI_TIMER_DEF(runtime)
 #define RUNS 10
 
 void run_fsdp(Tensor<_FLOAT, device>** shard_params,
-              Tensor<_FLOAT, device>** layer_params,
+              Tensor<_FLOAT, device>* layer_params,
               Tensor<_FLOAT, device>** allreduce_params,
               float fwd_rt_whole_unit,
               float bwd_rt_whole_unit,
@@ -61,54 +63,80 @@ void run_fsdp(Tensor<_FLOAT, device>** shard_params,
               uint num_replicas,
               ProxyCommunicator* unit_comm,
               ProxyCommunicator* allreduce_comm){
-    MPI_Request request[num_units];
+
+    //all-gather firs unit's parameters to form full layer parameters
+    CCUTILS_MPI_TIMER_START(allgather);
+    unit_comm->Allgather(shard_params[0]->data,
+                            static_cast<int>(max_params_per_shard[0]),
+                            layer_params->data,
+                            static_cast<int>(max_params_per_shard[0]));
+    CCUTILS_MPI_TIMER_STOP(allgather);
+
 
     // Forward pass
-    for (uint u = 0; u < num_units; u++) {
-        // 1. Allgather padded shards
-        CCUTILS_MPI_TIMER_START(allgather);
-        unit_comm->Allgather(shard_params[u]->data,
-                                static_cast<int>(max_params_per_shard[u]),
-                                layer_params[u]->data,
-                                static_cast<int>(max_params_per_shard[u]));
-        CCUTILS_MPI_TIMER_STOP(allgather);
+    for (uint u = 0; u < num_units-1; u++) {
+        unit_comm->Iallgather(shard_params[u+1]->data,
+                                static_cast<int>(max_params_per_shard[u+1]),
+                                layer_params->data,
+                                static_cast<int>(max_params_per_shard[u+1]),
+                                u+1); // gather params next unit
 
-        // 2. Local forward computation (simulated)
+        // Local forward computation current unit (simulated)
         usleep(fwd_rt_whole_unit);
+
+        CCUTILS_MPI_TIMER_START(allgather_wait_fwd);
+        unit_comm->Wait(u+1);
+        CCUTILS_MPI_TIMER_STOP(allgather_wait_fwd);
     }
 
     // Backward pass
-    for (int u = num_units - 1; u >= 0; u--) {
-        // 1. Optionally allgather saved parameters
-        CCUTILS_MPI_TIMER_START(allgather);
-        unit_comm->Allgather(shard_params[u]->data,
-                                static_cast<int>(max_params_per_shard[u]),
-                                layer_params[u]->data,
-                                static_cast<int>(max_params_per_shard[u]));
-        CCUTILS_MPI_TIMER_STOP(allgather);    
+    for (int u = num_units - 1; u > 0; u--) {
+        //1. Allgather for previous unit
+        unit_comm->Iallgather(shard_params[u-1]->data,
+                                static_cast<int>(max_params_per_shard[u-1]),
+                                layer_params->data,
+                                static_cast<int>(max_params_per_shard[u-1]),
+                                u-1);
 
         // 2. Local backward computation (simulated)
         usleep(bwd_rt_whole_unit);
 
-        // 3. Reduce-Scatter across shards (padded)
+        // 3. Reduce-Scatter across shards
         CCUTILS_MPI_TIMER_START(reduce_scatter);
-        unit_comm->Reduce_Scatter_block(layer_params[u]->data,
+        unit_comm->Reduce_Scatter_block(layer_params->data,
                                   shard_params[u]->data,
                                   static_cast<int>(max_params_per_shard[u]));
         CCUTILS_MPI_TIMER_STOP(reduce_scatter);
 
         // 4. Optional allreduce across replicas
         if (num_replicas > 1) {
-            CCUTILS_MPI_TIMER_START(barrier);
             allreduce_comm->Iallreduce(shard_params[u]->data,
                                        allreduce_params[u]->data,
                                        static_cast<int>(max_params_per_shard[u]),
                                        u);
-            CCUTILS_MPI_TIMER_STOP(barrier);
         }
+
+        CCUTILS_MPI_TIMER_START(allgather_wait_bwd);
+        unit_comm->Wait(u-1);
+        CCUTILS_MPI_TIMER_STOP(allgather_wait_bwd);
     }
 
+    // Handle unit 0 backward
+    int u = 0;
+    // Local backward computation (simulated)
+    usleep(bwd_rt_whole_unit);
+
+    // Reduce-Scatter across shards
+    CCUTILS_MPI_TIMER_START(reduce_scatter);
+    unit_comm->Reduce_Scatter_block(layer_params->data,
+                                    shard_params[u]->data,
+                                    static_cast<int>(max_params_per_shard[u]));
+    CCUTILS_MPI_TIMER_STOP(reduce_scatter);
     if (num_replicas > 1){
+        allreduce_comm->Iallreduce(shard_params[u]->data,
+                                       allreduce_params[u]->data,
+                                       static_cast<int>(max_params_per_shard[u]),
+                                       u); // handle last unit(unit 0) allreduce
         CCUTILS_MPI_TIMER_START(barrier);
         allreduce_comm->WaitAll(num_units);
         CCUTILS_MPI_TIMER_STOP(barrier);
@@ -185,12 +213,17 @@ int main(int argc, char* argv[]) {
 
     // Allocate buffers (padded)
     Tensor<_FLOAT, device>* shard_params[num_units];
-    Tensor<_FLOAT, device>* layer_params[num_units];
     Tensor<_FLOAT, device>* allreduce_params[num_units];
+
+    uint64_t max_shard_size = 0;
+    for (uint u = 0; u < num_units; u++)
+        if (max_params_per_shard[u] > max_shard_size)
+            max_shard_size = max_params_per_shard[u];
+
+    Tensor<_FLOAT, device>* allgather_buf = new Tensor<_FLOAT, device>(max_shard_size * sharding_factor);
 
     for (uint u = 0; u < num_units; u++) {
         shard_params[u] = new Tensor<_FLOAT, device>(max_params_per_shard[u]);
-        layer_params[u] = new Tensor<_FLOAT, device>(max_params_per_shard[u] * sharding_factor);
         if (num_replicas > 1)
             allreduce_params[u] = new Tensor<_FLOAT, device>(max_params_per_shard[u]);
     }
@@ -199,11 +232,11 @@ int main(int argc, char* argv[]) {
     float bwd_rt_whole_unit = (float)bwd_rt_whole_model / num_units;
 
 
-    MPICommunicator* unit_comm_proxy = new MPICommunicator(unit_comm, MPI_FLOAT, 0);
+    MPICommunicator* unit_comm_proxy = new MPICommunicator(unit_comm, MPI_FLOAT, num_units);
     MPICommunicator* allreduce_comm_proxy = new MPICommunicator(allreduce_comm, MPI_FLOAT, num_units);
 
     for(int i = 0; i < WARM_UP; i++)
-        run_fsdp(shard_params, layer_params, allreduce_params,
+        run_fsdp(shard_params, allgather_buf, allreduce_params,
                  fwd_rt_whole_unit, bwd_rt_whole_unit,
                  num_units, sharding_factor, max_params_per_shard,
                  num_replicas, unit_comm_proxy, allreduce_comm_proxy);
@@ -211,7 +244,7 @@ int main(int argc, char* argv[]) {
     
     for(int i = 0; i < RUNS; i++){
         CCUTILS_MPI_TIMER_START(runtime);
-        run_fsdp(shard_params, layer_params, allreduce_params,
+        run_fsdp(shard_params, allgather_buf, allreduce_params,
                  fwd_rt_whole_unit, bwd_rt_whole_unit,
                  num_units, sharding_factor, max_params_per_shard,
                  num_replicas, unit_comm_proxy, allreduce_comm_proxy);
@@ -223,10 +256,22 @@ int main(int argc, char* argv[]) {
 	int namelen,bytes,n,color;
 	MPI_Get_processor_name(host_name,&namelen);
 
+    //remove the warm-up timings
+    __timer_vals_allgather.erase(__timer_vals_allgather.begin(), __timer_vals_allgather.begin() + WARM_UP);
+    __timer_vals_allgather_wait_fwd.erase(__timer_vals_allgather_wait_fwd.begin(), __timer_vals_allgather_wait_fwd.begin() + WARM_UP * (num_units - 1));
+    __timer_vals_allgather_wait_bwd.erase(__timer_vals_allgather_wait_bwd.begin(), __timer_vals_allgather_wait_bwd.begin() + WARM_UP * (num_units - 1));
+    __timer_vals_reduce_scatter.erase(__timer_vals_reduce_scatter.begin(), __timer_vals_reduce_scatter.begin() + num_units * WARM_UP);
+
+    if(num_replicas > 1){
+        __timer_vals_barrier.erase(__timer_vals_barrier.begin(), __timer_vals_barrier.begin() + WARM_UP);
+    }
+
     // Use CCUTILS sections to print
     CCUTILS_MPI_SECTION_DEF(fsdp, "FSDP metrics")
     CCUTILS_SECTION_JSON_PUT(fsdp, "runtime", __timer_vals_runtime)
     CCUTILS_SECTION_JSON_PUT(fsdp, "allgather", __timer_vals_allgather)
+    CCUTILS_SECTION_JSON_PUT(fsdp, "allgather_wait_fwd", __timer_vals_allgather_wait_fwd)
+    CCUTILS_SECTION_JSON_PUT(fsdp, "allgather_wait_bwd", __timer_vals_allgather_wait_bwd)
     CCUTILS_SECTION_JSON_PUT(fsdp, "reduce_scatter", __timer_vals_reduce_scatter)
     CCUTILS_SECTION_JSON_PUT(fsdp, "barrier", __timer_vals_barrier)
     CCUTILS_SECTION_JSON_PUT(fsdp, "hostname", host_name);
