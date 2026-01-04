@@ -1,6 +1,8 @@
 #ifndef DATA_TYPES_HPP
 #define DATA_TYPES_HPP
 
+#include <mpi.h>
+
 // Include NCCL if enabled
 #ifdef PROXY_ENABLE_NCCL
     #include <nccl.h>
@@ -11,6 +13,7 @@
 #endif
 
 #ifdef PROXY_ENABLE_CUDA
+    #include <cuda_runtime.h>
     #define CCUTILS_GPU_CHECK CCUTILS_CUDA_CHECK
 #endif
 

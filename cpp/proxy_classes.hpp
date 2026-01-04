@@ -171,9 +171,6 @@ public:
             CCUTILS_HIP_CHECK(hipMalloc(reinterpret_cast<void**>(&data),
                         size * sizeof(T)));
             CCUTILS_HIP_CHECK(hipMemset(data, 0, size * sizeof(T)););
-    #else
-            static_assert(device != Device::GPU,
-                        "GPU support not enabled at compile time");
     #endif
         }
         else {
