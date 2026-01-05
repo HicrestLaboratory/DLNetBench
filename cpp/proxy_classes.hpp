@@ -3,6 +3,16 @@
 
 #include <mpi.h>
 
+#ifdef PROXY_CUDA   
+    #include <cuda_runtime.h>
+    #include <ccutils/cuda/cuda_macros.hpp>
+#endif
+
+#ifdef PROXY_HIP
+    #include "tmp_hip_ccutils.hpp" 
+    #include <hip/hip_runtime.h>
+#endif
+
 #ifdef PROXY_ENABLE_NCLL
     #include <nccl.h>
 #endif
@@ -114,14 +124,22 @@ public:
         WaitAll(num_streams);
     };
 
+    void Wait(int index) override {
+        CCUTILS_GPU_CHECK(SYNC_STREAM(streams[index]));
+    };
+
     void Allgather(const void* sendbuf, int sendcount, void* recvbuf, int recvcount) override {
-        ncclAllGather(sendbuf, recvbuf, sendcount, NCCL_FLOAT_TYPE,
-                      comm, streams[0]);
+        ncclAllGather(sendbuf, recvbuf, sendcount, NCCL_FLOAT_TYPE, comm, streams[0]);
+        Wait(0);
+    };
+
+    void Iallgather(const void* sendbuf, int sendcount, void* recvbuf, int recvcount, int index) override {
+        ncclAllGather(sendbuf, recvbuf, sendcount, NCCL_FLOAT_TYPE, comm, streams[index]);
     };
 
     void Reduce_Scatter_block(const void* sendbuf, void* recvbuf, int recvcount) override {
-        ncclReduceScatter(sendbuf, recvbuf, recvcount, NCCL_FLOAT_TYPE, ncclSum,
-                          comm, streams[0]);
+        ncclReduceScatter(sendbuf, recvbuf, recvcount, NCCL_FLOAT_TYPE, ncclSum, comm, streams[0]);
+        Wait(0);
     };
 }
 #endif

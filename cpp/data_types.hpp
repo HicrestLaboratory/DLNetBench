@@ -57,6 +57,8 @@
 // Communicator type
 #ifdef PROXY_ENABLE_NCCL
     using Proxy_CommType = ncclComm_t;
+#elif defined(PROXY_ENABLE_RCCL)
+    using Proxy_CommType = rcclComm_t;
 #else
     using Proxy_CommType = MPI_Comm;
 #endif
@@ -64,19 +66,21 @@
 // STREAMS
 #ifdef PROXY_ENABLE_CUDA
     using _Stream = cudaStream_t;
+    #define CREATE_STREAM(stream) \
+        CCUTILS_GPU_CHECK(cudaStreamCreate(&(stream)))
+    #define DESTROY_STREAM(stream) \
+        CCUTILS_GPU_CHECK(cudaStreamDestroy(stream))
+    #define SYNC_STREAM(stream) \
+        CCUTILS_GPU_CHECK(cudaStreamSynchronize(stream))
 #elif defined(PROXY_ENABLE_HIP)
     using _Stream = hipStream_t;
+    #define CREATE_STREAM(stream) \
+        CCUTILS_GPU_CHECK(hipStreamCreate(&(stream)))
+    #define DESTROY_STREAM(stream) \
+        CCUTILS_GPU_CHECK(hipStreamDestroy(stream))
+    #define SYNC_STREAM(stream) \
+        CCUTILS_GPU_CHECK(hipStreamSynchronize(stream))
 #endif
 
-#ifdef PROXY_ENABLE_CUDA
-    #define CREATE_STREAM(stream) cudaStreamCreate(&(stream))
-    #define DESTROY_STREAM(stream) cudaStreamDestroy(stream)
-    #define SYNC_STREAM(stream) cudaStreamSynchronize(stream)
-#elif defined(PROXY_ENABLE_HIP)
-    #define CREATE_STREAM(stream) hipStreamCreate(&(stream))
-    #define DESTROY_STREAM(stream) hipStreamDestroy(stream)
-    #define SYNC_STREAM(stream) hipStreamSynchronize(stream)
-#else
-#endif
 
 #endif // DATA_TYPES_HPP

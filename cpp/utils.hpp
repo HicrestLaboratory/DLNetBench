@@ -25,8 +25,8 @@
 #endif
 
 #ifdef PROXY_HIP
+    #include "tmp_hip_ccutils.hpp" 
     #include <hip/hip_runtime.h>
-    #include "tmp_ccutils_hip.hpp"
 #endif
 
 using json = nlohmann::json;
