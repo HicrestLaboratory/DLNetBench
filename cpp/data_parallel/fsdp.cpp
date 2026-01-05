@@ -275,6 +275,7 @@ int main(int argc, char* argv[]) {
     CCUTILS_SECTION_JSON_PUT(fsdp, "reduce_scatter", __timer_vals_reduce_scatter)
     CCUTILS_SECTION_JSON_PUT(fsdp, "barrier", __timer_vals_barrier)
     CCUTILS_SECTION_JSON_PUT(fsdp, "hostname", host_name);
+    CCUTILS_SECTION_JSON_PUT(fsdp, "rank", rank);
 
 
     CCUTILS_MPI_GLOBAL_JSON_PUT(fsdp, "model_size_bytes", total_model_size*sizeof(_FLOAT))
