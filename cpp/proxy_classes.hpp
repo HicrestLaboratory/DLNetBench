@@ -3,12 +3,12 @@
 
 #include <mpi.h>
 
-#ifdef PROXY_CUDA   
+#ifdef PROXY_ENABLE_CUDA   
     #include <cuda_runtime.h>
     #include <ccutils/cuda/cuda_macros.hpp>
 #endif
 
-#ifdef PROXY_HIP
+#ifdef PROXY_ENABLE_HIP
     #include "tmp_hip_ccutils.hpp" 
     #include <hip/hip_runtime.h>
 #endif
