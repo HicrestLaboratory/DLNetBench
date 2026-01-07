@@ -181,11 +181,11 @@ public:
                 throw std::runtime_error("Failed to allocate CPU memory");
         }
         else if constexpr (device == Device::GPU) {
-    #if defined(PROXY_CUDA)
+    #if defined(PROXY_ENABLE_CUDA)
             CCUTILS_CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&data),
                         size * sizeof(T)));
             CCUTILS_CUDA_CHECK(cudaMemset(data, 0, size * sizeof(T)));
-    #elif defined(PROXY_HIP)
+    #elif defined(PROXY_ENABLE_HIP)
             CCUTILS_HIP_CHECK(hipMalloc(reinterpret_cast<void**>(&data),
                         size * sizeof(T)));
             CCUTILS_HIP_CHECK(hipMemset(data, 0, size * sizeof(T)););
