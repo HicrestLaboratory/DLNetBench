@@ -27,7 +27,7 @@ namespace fs = std::filesystem;
 #include "../proxy_classes.hpp"
 
 // Determine device type based on compilation flags
-#if defined(PROXY_CUDA) || defined(PROXY_HIP)
+#if defined(PROXY_ENABLE_CUDA) || defined(PROXY_ENABLE_HIP)
     constexpr Device device = Device::GPU;
 #else
     constexpr Device device = Device::CPU;
