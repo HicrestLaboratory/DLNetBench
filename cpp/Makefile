@@ -2,9 +2,11 @@ WITH_MPI ?= 1 # enable mpi
 PROXY_CUDA ?= 0 # enable cuda
 PROXY_HIP ?= 0 # enable hip
 HALF ?= 0 # enable half precision (requires PROXY_CUDA or PROXY_HIP)
+PROXY_NCCL ?= 0 # enable NCCL (requires PROXY_CUDA)
 
 CXX := mpicxx
 CXXFLAGS := -O3 -std=c++17
+LDFLAGS :=
 
 ifndef CCUTILS_INCLUDE
 $(warning CCUTILS_INCLUDE is not set!)
@@ -12,18 +14,29 @@ $(warning Please set CCUTILS_INCLUDE to the include directory of ccutils)
 $(error Example: install by running the provided install.sh)
 endif
 
+ifeq ($(PROXY_NCCL),1)
+    PROXY_CUDA := 1
+    CXXFLAGS += -DPROXY_ENABLE_NCCL
+endif
+
 # Check that CUDA and HIP are not both enabled
 ifeq ($(PROXY_CUDA),1)
     ifeq ($(PROXY_HIP),1)
         $(error Cannot enable both PROXY_CUDA and PROXY_HIP at the same time)
     endif
-    CXX := nvcc
-    CXXFLAGS += -DPROXY_ENABLE_CUDA
-    CXXFLAGS += -DCCUTILS_ENABLE_CUDA
+    ifndef CUDA_HOME
+        NVCC_PATH := $(shell which nvcc 2>/dev/null)
+        ifeq ($(NVCC_PATH),)
+            $(error nvcc not found in PATH and CUDA_HOME not set!)
+        endif
+        CUDA_HOME := $(shell dirname $(shell dirname $(NVCC_PATH)))
+        $(warning CUDA_HOME auto-detected as $(CUDA_HOME))
+    endif
+    CXXFLAGS += -DPROXY_ENABLE_CUDA -DCCUTILS_ENABLE_CUDA -I$(CUDA_HOME)/include
+    LDFLAGS += -L$(CUDA_HOME)/lib64 -lcudart
 endif
 
 ifeq ($(PROXY_HIP),1)
-    CXX := hipcc
     CXXFLAGS += -DPROXY_ENABLE_HIP
     CXXFLAGS += -DCCUTILS_ENABLE_HIP
 endif

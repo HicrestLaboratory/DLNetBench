@@ -151,7 +151,16 @@ int main(int argc, char* argv[]) {
 
     MPI_Barrier(MPI_COMM_WORLD);
 
+    #ifdef PROXY_ENABLE_CCL
+    ncclUniqueId id;
+    if (rank == 0) {
+        ncclGetUniqueId(&id);
+    }
+    MPI_Bcast(&id, sizeof(id), MPI_BYTE, 0, MPI_COMM_WORLD);
+    ncclCommInitRank(&world_comm, world_size, id, rank);
+    #else
     MPICommunicator* communicator = new MPICommunicator(MPI_COMM_WORLD, MPI_FLOAT, num_buckets);
+    #endif
 
     //warmup
     for(int wmp = 0; wmp < WARM_UP; wmp++){
