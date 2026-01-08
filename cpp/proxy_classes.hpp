@@ -99,7 +99,7 @@ private:
 #ifdef PROXY_ENABLE_CCL
 class CCLCommunicator : public ProxyCommunicator {
 public:
-    CCLCommunicator(ccl_comm_t comm, int num_streams=1) {
+    CCLCommunicator(ncclComm_t comm, int num_streams=1) {
         this->comm = comm;
         this->num_streams = num_streams;
         ncclCommUserRank(comm, &rank);
@@ -141,7 +141,14 @@ public:
         ncclReduceScatter(sendbuf, recvbuf, recvcount, NCCL_FLOAT_TYPE, ncclSum, comm, streams[0]);
         Wait(0);
     };
-}
+private:
+    ncclComm_t comm;
+    int comm_size;
+    int rank;
+    int num_streams;
+    _Stream* streams = nullptr;
+    
+};
 #endif
 
 /**

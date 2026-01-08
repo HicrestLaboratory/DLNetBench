@@ -86,7 +86,7 @@ dp:
 	$(CXX) $(CXXFLAGS) $(MPI_LIBS) -o $(DP_PATH)/dp $(DP_PATH)/dp.cpp $(LDFLAGS)
 
 fsdp:
-	$(CXX) $(CXXFLAGS) $(MPI_LIBS) -o $(DP_PATH)/fsdp $(DP_PATH)/fsdp.cpp
+	$(CXX) $(CXXFLAGS) $(MPI_LIBS) -o $(DP_PATH)/fsdp $(DP_PATH)/fsdp.cpp $(LDFLAGS)
 
 clean:
 	rm -f $(DP_PATH)/dp $(DP_PATH)/fsdp
