@@ -6,15 +6,7 @@
  *
  *********************************************************************/
 
- //TODO: RCCLL, NCCL and CoCCL support
- #ifdef PROXY_ENABLE_NCLL
-    #include <nccl.h>
-#endif
-
-#ifdef PROXY_ENABLE_RCCL
-    #include <rccl.h>
-#endif
-
+ //TODO: RCCLL and CoCCL support
 #include <mpi.h>
 
 #include <unistd.h>
@@ -48,6 +40,16 @@ using nlohmann::json;
 #include "../utils.hpp"
 #include "../data_types.hpp"
 #include "../proxy_classes.hpp"
+
+#ifdef PROXY_ENABLE_NCCL
+    #include <nccl.h>
+Proxy_CommType world_comm;
+#endif
+
+#ifdef PROXY_ENABLE_RCCL
+    #include <rccl.h>
+Proxy_CommType world_comm;
+#endif
 
 // Device to use
 #if defined(PROXY_ENABLE_CUDA) || defined(PROXY_ENABLE_HIP)
@@ -150,7 +152,6 @@ int main(int argc, char* argv[]) {
     MPI_Barrier(MPI_COMM_WORLD);
 
     #ifdef PROXY_ENABLE_CCL
-    CommType world_comm;
     ncclUniqueId id;
     if (rank == 0) {
         ncclGetUniqueId(&id);
