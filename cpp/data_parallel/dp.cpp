@@ -51,7 +51,7 @@ using nlohmann::json;
 #include "../data_types.hpp"
 #include "../proxy_classes.hpp"
 
-// Global variables
+// Device to use
 #if defined(PROXY_ENABLE_CUDA) || defined(PROXY_ENABLE_HIP)
     constexpr Device device = Device::GPU;
 #else
@@ -158,6 +158,7 @@ int main(int argc, char* argv[]) {
     }
     MPI_Bcast(&id, sizeof(id), MPI_BYTE, 0, MPI_COMM_WORLD);
     ncclCommInitRank(&world_comm, world_size, id, rank);
+    CCLCommunicator* communicator = new CCLCommunicator(world_comm, num_buckets);
     #else
     MPICommunicator* communicator = new MPICommunicator(MPI_COMM_WORLD, MPI_FLOAT, num_buckets);
     #endif
@@ -209,7 +210,7 @@ int main(int argc, char* argv[]) {
 
     CCUTILS_MPI_SECTION_END(dp);
 
-    #ifdef PROXY_ENABLE_NCLL
+    #ifdef PROXY_ENABLE_CLL
     ncclCommDestroy(world_comm);
     #endif
 

@@ -102,8 +102,8 @@ public:
     CCLCommunicator(ccl_comm_t comm, int num_streams=1) {
         this->comm = comm;
         this->num_streams = num_streams;
-        ccl_comm_get_rank(comm, &rank);
-        ccl_comm_get_size(comm, &comm_size);
+        ncclCommUserRank(comm, &rank);
+        ncclCommCount(comm, &comm_size);
         this->streams = new _Stream[num_streams];
         for(int i = 0; i < num_streams; i++) {
             CREATE_STREAM(this->streams[i]);
