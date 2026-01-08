@@ -117,7 +117,7 @@ public:
 
     void WaitAll(int num_waits) override {
         for(int i = 0; i < num_waits; i++) 
-            CCUTILS_GPU_CHECK(SYNC_STREAM(streams[i]));
+            SYNC_STREAM(streams[i]);
     }
 
     void Barrier() override {
@@ -125,7 +125,7 @@ public:
     };
 
     void Wait(int index) override {
-        CCUTILS_GPU_CHECK(SYNC_STREAM(streams[index]));
+        SYNC_STREAM(streams[index]);
     };
 
     void Allgather(const void* sendbuf, int sendcount, void* recvbuf, int recvcount) override {
@@ -140,6 +140,23 @@ public:
     void Reduce_Scatter_block(const void* sendbuf, void* recvbuf, int recvcount) override {
         ncclReduceScatter(sendbuf, recvbuf, recvcount, NCCL_FLOAT_TYPE, ncclSum, comm, streams[0]);
         Wait(0);
+    };
+
+    void finalize() override {
+        for(int i = 0; i < num_streams; i++) {
+            DESTROY_STREAM(streams[i]);
+        }
+        delete[] streams;
+    };
+
+    std::string get_name() override {
+        std::string name;
+        #ifdef PROXY_ENABLE_NCCL
+            name = "NCCL";
+        #elif defined(PROXY_ENABLE_RCCL)
+            name = "RCCL";
+        #endif
+        return name;
     };
 private:
     ncclComm_t comm;

@@ -9,12 +9,10 @@
  //TODO: RCCLL, NCCL and CoCCL support
  #ifdef PROXY_ENABLE_NCLL
     #include <nccl.h>
-    CommType world_comm;
 #endif
 
 #ifdef PROXY_ENABLE_RCCL
     #include <rccl.h>
-    CommType world_comm;
 #endif
 
 #include <mpi.h>
@@ -152,6 +150,7 @@ int main(int argc, char* argv[]) {
     MPI_Barrier(MPI_COMM_WORLD);
 
     #ifdef PROXY_ENABLE_CCL
+    CommType world_comm;
     ncclUniqueId id;
     if (rank == 0) {
         ncclGetUniqueId(&id);
