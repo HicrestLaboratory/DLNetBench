@@ -39,8 +39,8 @@
         #error "HALF_PRECISION is defined but the target platform is not a supported GPU."
     #endif
 
-    #ifdef PROXY_ENABLE_NCCL
-            #define NCCL_FLOAT_TYPE ncclHalf
+    #ifdef PROXY_ENABLE_CCL
+        #define NCCL_FLOAT_TYPE ncclHalf
     #endif
 #else
     // Default to float precision
@@ -51,10 +51,8 @@
 #endif
 
 // Communicator type
-#ifdef PROXY_ENABLE_NCCL
+#ifdef PROXY_ENABLE_CCL
     using Proxy_CommType = ncclComm_t;
-#elif defined(PROXY_ENABLE_RCCL)
-    using Proxy_CommType = rcclComm_t;
 #else
     using Proxy_CommType = MPI_Comm;
 #endif

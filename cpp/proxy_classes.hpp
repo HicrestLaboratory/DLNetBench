@@ -94,9 +94,9 @@ private:
 
 };
 
-//TODO: add *CCL Communicator class
+//TODO: add oneCCL class
 
-#ifdef PROXY_ENABLE_CCL
+#ifdef PROXY_ENABLE_CCL //NCCL or RCCL
 class CCLCommunicator : public ProxyCommunicator {
 public:
     CCLCommunicator(ncclComm_t comm, int num_streams=1) {
@@ -167,6 +167,10 @@ private:
     
 };
 #endif
+
+#ifdef PROXY_ENABLE_ONECCL
+#endif
+
 
 /**
 * @enum Device

@@ -9,6 +9,8 @@
  * 
  *********************************************************************/
 
+//TODO: add oneCCL support
+
 #include <mpi.h>
 #include <unistd.h>
 #include <stdio.h>
@@ -25,6 +27,16 @@ namespace fs = std::filesystem;
 #include "../utils.hpp"
 #include "../data_types.hpp"
 #include "../proxy_classes.hpp"
+
+#ifdef PROXY_ENABLE_NCCL
+    #include <nccl.h>
+Proxy_CommType world_comm;
+#endif
+
+#ifdef PROXY_ENABLE_RCCL
+    #include <rccl.h>
+Proxy_CommType world_comm;
+#endif
 
 // Determine device type based on compilation flags
 #if defined(PROXY_ENABLE_CUDA) || defined(PROXY_ENABLE_HIP)
@@ -232,8 +244,24 @@ int main(int argc, char* argv[]) {
     float bwd_rt_whole_unit = (float)bwd_rt_whole_model / num_units;
 
 
+    #ifdef PROXY_ENABLE_CCL 
+    ncclUniqueId id;
+    if (rank == 0) {
+        ncclGetUniqueId(&id);
+    }
+    MPI_Bcast(&id, sizeof(id), MPI_BYTE, 0, MPI_COMM_WORLD);
+    ncclCommInitRank(&world_comm, world_size, id, rank);
+    // create NCCL communicators for unit_comm and allreduce_comm
+    ncclComm_t unit_nccl_comm;
+    ncclComm_t allreduce_nccl_comm;
+    ncclCommSplit(world_comm, replica_color, rank, &unit_nccl_comm, NULL);
+    ncclCommSplit(world_comm, shard_index_color, rank, &allreduce_nccl_comm, NULL);
+    CCLCommunicator* unit_comm_proxy = new CCLCommunicator(unit_nccl_comm, num_units);
+    CCLCommunicator* allreduce_comm_proxy = new CCLCommunicator(allreduce_nccl_comm, num_units);  
+    #else
     MPICommunicator* unit_comm_proxy = new MPICommunicator(unit_comm, MPI_FLOAT, num_units);
     MPICommunicator* allreduce_comm_proxy = new MPICommunicator(allreduce_comm, MPI_FLOAT, num_units);
+    #endif
 
     for(int i = 0; i < WARM_UP; i++)
         run_fsdp(shard_params, allgather_buf, allreduce_params,
@@ -304,6 +332,10 @@ int main(int argc, char* argv[]) {
         CCUTILS_MPI_GLOBAL_JSON_PUT(fsdp, "allreduce_msg_size_bytes", allreduce_msg_size)
 
     CCUTILS_MPI_SECTION_END(fsdp)
+
+    #ifdef PROXY_ENABLE_CLL
+    ncclCommDestroy(world_comm);
+    #endif
 
     MPI_Finalize();
     return 0;

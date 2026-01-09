@@ -4,6 +4,7 @@ PROXY_HIP ?= 0 # enable hip
 HALF ?= 0 # enable half precision (requires NCCL or RCCL)
 PROXY_NCCL ?= 0 # enable NCCL
 PROXY_RCCL ?= 0 # enable RCCL
+#TODO: add oneCCL support
 
 CXX := mpicxx
 CXXFLAGS := -O3 -std=c++17
@@ -62,11 +63,11 @@ endif
 CXXFLAGS += -I$(CCUTILS_INCLUDE)
 
 ifeq ($(WITH_MPI),1)
-export OMPI_MCA_opal_cuda_support=1
 MPI_CFLAGS := $(shell mpicxx --showme:compile)
 MPI_LIBS   := $(shell mpicxx --showme:link)
     
 ifeq ($(PROXY_CUDA),1)
+export OMPI_MCA_opal_cuda_support=1
 # Filter out -pthread for nvcc
 CXXFLAGS += $(filter-out -pthread, $(MPI_CFLAGS)) -DWITH_MPI -DCCUTILS_ENABLE_MPI
 MPI_LIBS := $(filter-out -pthread,$(MPI_LIBS))

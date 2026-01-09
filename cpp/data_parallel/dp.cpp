@@ -6,7 +6,7 @@
  *
  *********************************************************************/
 
- //TODO: RCCLL and CoCCL support
+ //TODO: oneCCL support
 #include <mpi.h>
 
 #include <unistd.h>
