@@ -36,6 +36,9 @@ using nlohmann::json;
     #include <ccutils/hip/hip_macros.hpp>
 #endif
 
+
+#include "../energy_profiler/cuda/power-profiler/power_prof.hpp" 
+
 // Project headers
 #include "../utils.hpp"
 #include "../data_types.hpp"
@@ -62,6 +65,7 @@ Proxy_CommType world_comm;
 #define NUM_B 10
 #define WARM_UP 8
 #define RUNS 10
+#define POWER_SAMPLING_RATE_MS 5
 
 CCUTILS_MPI_TIMER_DEF(runtime)
 CCUTILS_MPI_TIMER_DEF(barrier)
@@ -164,15 +168,23 @@ int main(int argc, char* argv[]) {
     #endif
 
     //warmup
+    std::vector<float> energy_vals;
     for(int wmp = 0; wmp < WARM_UP; wmp++){
         run_data_parallel(grad_ptrs, sum_grad_ptrs, num_buckets, params_per_bucket,
                          fwd_rt_whole_model, bwd_rt_per_B, communicator);
     }
 
+    // Add here the start and stop for the energy profiler
     for(int iter = 0; iter < RUNS; iter++){
+        std::string power_file = "power_dp_rank_" + std::to_string(rank) + "run_" + std::to_string(iter) + ".csv";
+        PowerProfiler powerProf(0, POWER_SAMPLING_RATE_MS, power_file);
+
         CCUTILS_MPI_TIMER_START(runtime)
+        powerProf.start();
         run_data_parallel(grad_ptrs, sum_grad_ptrs, num_buckets, params_per_bucket,
                          fwd_rt_whole_model, bwd_rt_per_B, communicator);
+        float energy_consumed = powerProf.stop();
+        energy_vals.push_back(energy_consumed);
         CCUTILS_MPI_TIMER_STOP(runtime)
     }
 
@@ -207,6 +219,7 @@ int main(int argc, char* argv[]) {
     __timer_vals_barrier.erase(__timer_vals_barrier.begin(), __timer_vals_barrier.begin() + WARM_UP); // remove the warm-up barriers
     CCUTILS_SECTION_JSON_PUT(dp, "barrier_time_us", __timer_vals_barrier);
     CCUTILS_SECTION_JSON_PUT(dp, "hostname", host_name);
+    CCUTILS_SECTION_JSON_PUT(dp, "energy_consumed_mJ", energy_vals);
 
     CCUTILS_MPI_SECTION_END(dp);
 

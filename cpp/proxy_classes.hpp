@@ -21,6 +21,11 @@
     #include <rccl.h>
 #endif
 
+#ifdef PROXY_ENABLE_ONECCL
+    #include <oneapi/ccl.hpp>
+    #include <CL/sycl.hpp>  // SYCL header for queues and device memory
+#endif
+
 class ProxyCommunicator {
 public:
     virtual void Iallreduce(const void* sendbuf, void* recvbuf, int count, int index) = 0;
@@ -168,7 +173,7 @@ private:
 };
 #endif
 
-#ifdef PROXY_ENABLE_ONECCL
+#ifdef PROXY_ENABLE_ONECCL //TODO: create a OneCCLCommunicator class 
 #endif
 
 
@@ -217,6 +222,11 @@ public:
             CCUTILS_HIP_CHECK(hipMalloc(reinterpret_cast<void**>(&data),
                         size * sizeof(T)));
             CCUTILS_HIP_CHECK(hipMemset(data, 0, size * sizeof(T)););
+    #elif defined(PROXY_ENABLE_ONECCL)
+            // Using SYCL for oneCCL
+            sycl::queue q(sycl::gpu_selector_v);
+            data = sycl::malloc_device<T>(size, q);
+            q.memset(data, 0, size * sizeof(T)).wait();
     #endif
         }
         else {
