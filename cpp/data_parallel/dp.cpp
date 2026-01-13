@@ -20,6 +20,8 @@
 #include <filesystem>
 #include <nlohmann/json.hpp>
 
+#define NVML
+
 namespace fs = std::filesystem;
 using nlohmann::json;
 
@@ -37,7 +39,7 @@ using nlohmann::json;
 #endif
 
 
-#include "../energy_profiler/cuda/power-profiler/power_prof.hpp" 
+#include <profiler/power_profiler.hpp>
 
 // Project headers
 #include "../utils.hpp"
@@ -176,14 +178,15 @@ int main(int argc, char* argv[]) {
 
     // Add here the start and stop for the energy profiler
     for(int iter = 0; iter < RUNS; iter++){
-        std::string power_file = "power_dp_rank_" + std::to_string(rank) + "run_" + std::to_string(iter) + ".csv";
+        std::string power_file = "logs/power_dp_rank_" + std::to_string(rank) + "run_" + std::to_string(iter) + ".csv";
         PowerProfiler powerProf(0, POWER_SAMPLING_RATE_MS, power_file);
 
         CCUTILS_MPI_TIMER_START(runtime)
         powerProf.start();
         run_data_parallel(grad_ptrs, sum_grad_ptrs, num_buckets, params_per_bucket,
                          fwd_rt_whole_model, bwd_rt_per_B, communicator);
-        float energy_consumed = powerProf.stop();
+        powerProf.stop();
+        float energy_consumed = powerProf.get_device_energy();
         energy_vals.push_back(energy_consumed);
         CCUTILS_MPI_TIMER_STOP(runtime)
     }
@@ -204,8 +207,8 @@ int main(int argc, char* argv[]) {
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "num_buckets", num_buckets)
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "local_batch_size", local_batch_size)
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "world_size", world_size)
-    CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "fwd_rt_whole_model_s", fwd_rt_whole_model)
-    CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "bwd_rt_per_bucket_s", bwd_rt_per_B)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "fwd_rt_whole_model", fwd_rt_whole_model)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "bwd_rt_per_bucket", bwd_rt_per_B)
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "total_model_size_params", total_model_size)
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "msg_size_avg_bytes", msg_size_avg*sizeof(_FLOAT))
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "msg_size_std_bytes", msg_size_std*sizeof(_FLOAT))
@@ -217,9 +220,9 @@ int main(int argc, char* argv[]) {
     
     CCUTILS_SECTION_JSON_PUT(dp, "runtimes", __timer_vals_runtime);
     __timer_vals_barrier.erase(__timer_vals_barrier.begin(), __timer_vals_barrier.begin() + WARM_UP); // remove the warm-up barriers
-    CCUTILS_SECTION_JSON_PUT(dp, "barrier_time_us", __timer_vals_barrier);
+    CCUTILS_SECTION_JSON_PUT(dp, "barrier_time", __timer_vals_barrier);
     CCUTILS_SECTION_JSON_PUT(dp, "hostname", host_name);
-    CCUTILS_SECTION_JSON_PUT(dp, "energy_consumed_mJ", energy_vals);
+    CCUTILS_SECTION_JSON_PUT(dp, "energy_consumed", energy_vals);
 
     CCUTILS_MPI_SECTION_END(dp);
 

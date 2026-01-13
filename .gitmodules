@@ -1,3 +1,1 @@
-[submodule "cpp/energy_profiler"]
-	path = cpp/energy_profiler
-	url = https://github.com/lorenzo-carpentieri/mpi-energy-aware
+

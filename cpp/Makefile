@@ -23,8 +23,10 @@ ifeq ($(PROXY_NCCL),1)
     ifndef NCCL_HOME
         $(error PROXY_NCCL=1 but NCCL_HOME is not set! Load the NCCL module and set NCCL_HOME.)
     endif
-    CXXFLAGS += -I$(NCCL_HOME)/include
+    ENERGY_PROFILER_HOME := $(HOME)/.local/
+    CXXFLAGS += -I$(NCCL_HOME)/include -I$(ENERGY_PROFILER_HOME)/include
     LDFLAGS  += -L$(NCCL_HOME)/lib -lnccl
+    LDFLAGS += -L$(ENERGY_PROFILER_HOME)/lib -lpower_profiler
 endif
 
 # Check that CUDA and HIP are not both enabled

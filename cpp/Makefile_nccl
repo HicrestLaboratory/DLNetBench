@@ -1,0 +1,53 @@
+# -------------------------
+# Minimal Makefile for NCCL + CUDA + MPI using nvcc
+# -------------------------
+
+WITH_MPI ?= 1
+PROXY_CUDA ?= 1  # enable CUDA
+PROXY_NCCL ?= 1  # enable NCCL
+HALF ?= 0        # optional half precision
+
+NVCC := nvcc
+DP_PATH := ./data_parallel
+
+# Paths
+CUDA_HOME ?= $(shell dirname $(shell dirname $(shell which nvcc)))
+NCCL_HOME ?= /path/to/nccl
+ENERGY_PROFILER_HOME ?= $(HOME)/.local
+CCUTILS_INCLUDE ?= $(HOME)/.local/ccutils/install/include
+
+# Compiler flags
+CXXFLAGS := -O3 --std=c++17 \
+            -I$(CUDA_HOME)/include \
+            -I$(NCCL_HOME)/include \
+            -I$(ENERGY_PROFILER_HOME)/include \
+            -I$(CCUTILS_INCLUDE) \
+            -DPROXY_ENABLE_CUDA -DPROXY_ENABLE_NCCL \
+            -DWITH_MPI -DNVML -DCCUTILS_ENABLE_CUDA -DCCUTILS_ENABLE_MPI
+
+# Linker flags
+LDFLAGS := -L$(CUDA_HOME)/lib64 \
+           -L$(NCCL_HOME)/lib \
+           -L$(ENERGY_PROFILER_HOME)/lib
+
+# Libraries
+LDLIBS := -lcudart -lnccl -lpower_profiler -lmpi -lpthread -ldl -lnvidia-ml
+
+# -------------------------
+# Targets
+# -------------------------
+all: data_parallel
+
+data_parallel: dp fsdp
+
+dp:
+	$(NVCC) $(CXXFLAGS) -o $(DP_PATH)/dp $(DP_PATH)/dp.cpp $(LDFLAGS) $(LDLIBS)
+
+fsdp:
+	$(NVCC) $(CXXFLAGS) -o $(DP_PATH)/fsdp $(DP_PATH)/fsdp.cpp $(LDFLAGS) $(LDLIBS)
+
+clean:
+	rm -f $(DP_PATH)/dp $(DP_PATH)/fsdp
+
+.PHONY: all clean
+
