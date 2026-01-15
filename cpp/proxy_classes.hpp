@@ -173,7 +173,62 @@ private:
 };
 #endif
 
-#ifdef PROXY_ENABLE_ONECCL //TODO: create a OneCCLCommunicator class 
+#ifdef PROXY_ENABLE_ONECCL
+class OneCCLCommunicator : public ProxyCommunicator {
+public:
+    OneCCLCommunicator(ccl::communicator comm, int num_streams = 1)
+        : comm(comm), num_streams(num_streams) 
+    {
+        streams = new sycl::queue[num_streams];
+        for (int i = 0; i < num_streams; i++) {
+            streams[i] = sycl::queue(sycl::gpu_selector_v); // create queue
+        }
+    }
+
+    // Non-blocking allreduce
+    void Iallreduce(const void* sendbuf, void* recvbuf, int count, int index) override {
+        ccl::allreduce(sendbuf, recvbuf, count, ccl::reduction::sum, comm, streams[index]).wait();
+    }
+
+    void WaitAll(int num_waits) override {
+        // nothing to do, events already waited in Iallreduce
+    }
+
+    void Barrier() override {
+        // oneCCL has barrier via allreduce with zero data
+        char dummy = 0;
+        ccl::allreduce(&dummy, &dummy, 1, ccl::reduction::sum, comm, streams[0]).wait();
+    }
+
+    void Wait(int index) override {
+        // no-op if you already waited on events
+    }
+
+    void Allgather(const void* sendbuf, int sendcount, void* recvbuf, int recvcount) override {
+        ccl::allgather(sendbuf, recvbuf, sendcount, comm, streams[0]).wait();
+    }
+
+    void Iallgather(const void* sendbuf, int sendcount, void* recvbuf, int recvcount, int index) override {
+        ccl::allgather(sendbuf, recvbuf, sendcount, comm, streams[index]).wait();
+    }
+
+    void Reduce_Scatter_block(const void* sendbuf, void* recvbuf, int recvcount) override {
+        ccl::reduce_scatter(sendbuf, recvbuf, recvcount, ccl::reduction::sum, comm, streams[0]).wait();
+    }
+
+    void finalize() override {
+        delete[] streams; // queues automatically cleaned up
+    }
+
+    std::string get_name() override {
+        return "oneCCL";
+    }
+
+private:
+    ccl::communicator comm;
+    int num_streams;
+    sycl::queue* streams = nullptr;
+};
 #endif
 
 
@@ -223,10 +278,11 @@ public:
                         size * sizeof(T)));
             CCUTILS_HIP_CHECK(hipMemset(data, 0, size * sizeof(T)););
     #elif defined(PROXY_ENABLE_ONECCL)
-            // Using SYCL for oneCCL
-            sycl::queue q(sycl::gpu_selector_v);
-            data = sycl::malloc_device<T>(size, q);
-            q.memset(data, 0, size * sizeof(T)).wait();
+        sycl::queue q(sycl::gpu_selector_v);        // temporary queue
+        data = sycl::malloc_device<T>(size, q);    // allocate device memory
+        if (!data) 
+            throw std::runtime_error("SYCL device allocation failed");
+        q.memset(data, 0, size * sizeof(T)).wait(); // optional zero
     #endif
         }
         else {
@@ -248,6 +304,9 @@ public:
                 CCUTILS_CUDA_FREE_SAFE(data);
     #elif defined(PROXY_HIP)
                 CCUTILS_HIP_FREE_SAFE(data);
+    #elif defined(PROXY_ENABLE_ONECCL)
+                sycl::queue q(sycl::gpu_selector_v); // temporary queue
+                sycl::free(data, q);
     #endif
 
             }
