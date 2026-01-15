@@ -38,7 +38,6 @@ using nlohmann::json;
     #include <ccutils/hip/hip_macros.hpp>
 #endif
 
-
 #include <profiler/power_profiler.hpp>
 
 // Project headers
