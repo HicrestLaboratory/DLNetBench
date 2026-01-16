@@ -174,7 +174,7 @@ int main(int argc, char* argv[]) {
         run_data_parallel(grad_ptrs, sum_grad_ptrs, num_buckets, params_per_bucket,
                          fwd_rt_whole_model, bwd_rt_per_B, communicator);
     }
-    std::string sub_folder = model_name + "_dp/";
+    std::string sub_folder = model_name + "_dp";
 
     // Add here the start and stop for the energy profiler
     #ifdef PROXY_ENABLE_NCCL
@@ -187,7 +187,7 @@ int main(int argc, char* argv[]) {
     #endif
     std::string base_folder_path = "logs_" + std::to_string(world_size) + "/";
     for(int iter = 0; iter < RUNS; iter++){
-        std::string power_file = "logs/" + sub_folder + "power_dp_rank_" + std::to_string(rank) + "run_" + std::to_string(iter) + ".csv";
+        std::string power_file = base_folder_path + sub_folder + "power_dp_rank_" + std::to_string(rank) + "run_" + std::to_string(iter) + ".csv";
         PowerProfiler powerProf(0, POWER_SAMPLING_RATE_MS, power_file);
 
         CCUTILS_MPI_TIMER_START(runtime)
