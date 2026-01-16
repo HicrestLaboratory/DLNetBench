@@ -174,10 +174,20 @@ int main(int argc, char* argv[]) {
         run_data_parallel(grad_ptrs, sum_grad_ptrs, num_buckets, params_per_bucket,
                          fwd_rt_whole_model, bwd_rt_per_B, communicator);
     }
+    std::string sub_folder = model_name + "_dp/";
 
     // Add here the start and stop for the energy profiler
+    #ifdef PROXY_ENABLE_NCCL
+    std::string algo = getenv("NCCL_ALGO") ? getenv("NCCL_ALGO") : "default_algo";
+    std::string proto = getenv("NCCL_PROTO") ? getenv("NCCL_PROTO") : "default_proto";
+    std::string channels = getenv("NCCL_MAX_CTAS") ? getenv("NCCL_MAX_CTAS") : "default_ctas";
+    std::string threads = getenv("NCCL_NTHREADS") ? getenv("NCCL_NTHREADS") : "default_threads";
+
+    sub_folder += "_nccl_algo_" + algo + "_proto_" + proto + "_ctas_" + channels + "_threads_" + threads + "/";
+    #endif
+    std::string base_folder_path = "logs_" + std::to_string(world_size) + "/";
     for(int iter = 0; iter < RUNS; iter++){
-        std::string power_file = "logs/power_dp_rank_" + std::to_string(rank) + "run_" + std::to_string(iter) + ".csv";
+        std::string power_file = "logs/" + sub_folder + "power_dp_rank_" + std::to_string(rank) + "run_" + std::to_string(iter) + ".csv";
         PowerProfiler powerProf(0, POWER_SAMPLING_RATE_MS, power_file);
 
         CCUTILS_MPI_TIMER_START(runtime)
@@ -215,8 +225,6 @@ int main(int argc, char* argv[]) {
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "backend", communicator->get_name())
 
     //erase warm-up elemements
-
-    
     CCUTILS_SECTION_JSON_PUT(dp, "runtimes", __timer_vals_runtime);
     __timer_vals_barrier.erase(__timer_vals_barrier.begin(), __timer_vals_barrier.begin() + WARM_UP); // remove the warm-up barriers
     CCUTILS_SECTION_JSON_PUT(dp, "barrier_time", __timer_vals_barrier);
