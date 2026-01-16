@@ -182,6 +182,9 @@ std::map<std::string, uint64_t> get_model_stats(std::string filename){
     std::getline(file, line); // Experts (optional)
     uint64_t experts = std::stoull(extract_value(line));
 
+    std::getline(file, line); // in case there are more lines
+    uint64_t sample_size = std::stoull(extract_value(line));
+
     model_stats["forwardFlops"] = forwardFlops;
     model_stats["backwardFlops"] = backwardFlops;
     model_stats["modelSize"] = modelSize;
@@ -191,6 +194,7 @@ std::map<std::string, uint64_t> get_model_stats(std::string filename){
     model_stats["ffn_avgForwardTime"] = ffn_avgForwardTime;
     model_stats["ffn_avgBackwardTime"] = ffn_avgBackwardTime;
     model_stats["experts"] = experts;
+    model_stats["sampleSize"] = sample_size;
 
     return model_stats;   
 }

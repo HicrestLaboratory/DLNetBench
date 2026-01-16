@@ -26,9 +26,11 @@
     #include <CL/sycl.hpp>  // SYCL header for queues and device memory
 #endif
 
+//TODO: add Send/Recv methods and make function inlines for performance
 class ProxyCommunicator {
 public:
     virtual void Iallreduce(const void* sendbuf, void* recvbuf, int count, int index) = 0;
+    virtual void Allreduce(const void* sendbuf, void* recvbuf, int count) = 0;
     virtual void Iallgather(const void* sendbuf, int sendcount,
                             void* recvbuf, int recvcount, int index) = 0;
     virtual void Allgather(const void* sendbuf, int sendcount,
@@ -38,6 +40,10 @@ public:
     virtual void WaitAll(int num_waits) = 0;
     virtual void Wait(int index) = 0;
     virtual void finalize() = 0;
+    virtual void send(const void* buf, int count, int dest) = 0;
+    virtual void recv(void* buf, int count, int source) = 0;
+    virtual void Isend(const void* buf, int count, int dest, int index) = 0;
+    virtual void Irecv(void* buf, int count, int source, int index) = 0;
     virtual std::string get_name() = 0;
     virtual ~ProxyCommunicator() {}
 };
@@ -57,6 +63,10 @@ public:
 
     void Iallreduce(const void* sendbuf, void* recvbuf, int count, int index) override {
         MPI_Iallreduce(sendbuf, recvbuf, count, MPI_FLOAT, MPI_SUM, comm, &(requests[index]));
+    };
+
+    void Allreduce(const void* sendbuf, void* recvbuf, int count) override {
+        MPI_Allreduce(sendbuf, recvbuf, count, MPI_FLOAT, MPI_SUM, comm);
     };
 
     void Barrier() override {
@@ -81,6 +91,22 @@ public:
 
     void Reduce_Scatter_block(const void* sendbuf, void* recvbuf, int recvcount) override {
         MPI_Reduce_scatter_block(sendbuf, recvbuf, recvcount, MPI_FLOAT, MPI_SUM, comm);
+    };
+
+    void send(const void* buf, int count, int dest) override {
+        MPI_Send(buf, count, datatype, dest, 0, comm);
+    };
+
+    void recv(void* buf, int count, int source) override {
+        MPI_Recv(buf, count, datatype, source, 0, comm, MPI_STATUS_IGNORE);
+    };
+
+    void Isend(const void* buf, int count, int dest, int index) override {
+        MPI_Isend(buf, count, datatype, dest, 0, comm, &requests[index]);
+    };
+
+    void Irecv(void* buf, int count, int source, int index) override {
+        MPI_Irecv(buf, count, datatype, source, 0, comm, &requests[index]);
     };
 
     std::string get_name() override {
@@ -120,6 +146,12 @@ public:
                       comm, streams[index]);
     }
 
+    void Allreduce(const void* sendbuf, void* recvbuf, int count) override {
+        ncclAllReduce(sendbuf, recvbuf, count, NCCL_FLOAT_TYPE, ncclSum,
+                      comm, streams[0]);
+        Wait(0);
+    }
+
     void WaitAll(int num_waits) override {
         for(int i = 0; i < num_waits; i++) 
             SYNC_STREAM(streams[i]);
@@ -146,6 +178,42 @@ public:
         ncclReduceScatter(sendbuf, recvbuf, recvcount, NCCL_FLOAT_TYPE, ncclSum, comm, streams[0]);
         Wait(0);
     };
+
+#if defined(PROXY_ENABLE_NCCL) && (NCCL_VERSION_CODE >= NCCL_VERSION(2,7,0)) //ONLY NCCL >= 2.7 SUPPORTS P2P
+    void send(const void* buf, int count, int peer) override {
+        ncclSend(buf, count, NCCL_FLOAT_TYPE, peer, comm, streams[0]);
+        Wait(0);
+    }
+
+    void recv(void* buf, int count, int peer) override {
+        ncclRecv(buf, count, NCCL_FLOAT_TYPE, peer, comm, streams[0]);
+        Wait(0);
+    }
+
+    void Isend(const void* buf, int count, int peer, int index) override {
+        ncclSend(buf, count, NCCL_FLOAT_TYPE, peer, comm, streams[index]);
+    }
+
+    void Irecv(void* buf, int count, int peer, int index) override {
+        ncclRecv(buf, count, NCCL_FLOAT_TYPE, peer, comm, streams[index]);
+    }
+#else
+    void send(const void* buf, int count, int peer) override {
+        throw std::runtime_error("ncclSend requires NCCL >= 2.7");
+    }
+
+    void recv(void* buf, int count, int peer) override {
+        throw std::runtime_error("ncclRecv requires NCCL >= 2.7");
+    }
+
+    void Isend(const void* buf, int count, int peer, int index) override {
+        throw std::runtime_error("ncclSend requires NCCL >= 2.7");
+    }
+
+    void Irecv(void* buf, int count, int peer, int index) override {
+        throw std::runtime_error("ncclRecv requires NCCL >= 2.7");
+    }
+#endif
 
     void finalize() override {
         for(int i = 0; i < num_streams; i++) {
@@ -214,6 +282,22 @@ public:
 
     void Reduce_Scatter_block(const void* sendbuf, void* recvbuf, int recvcount) override {
         ccl::reduce_scatter(sendbuf, recvbuf, recvcount, ccl::reduction::sum, comm, streams[0]).wait();
+    }
+
+    void send(const void* buf, int count, int dest) override {
+        ccl::send(buf, count, dest, comm, streams[0]).wait();
+    }
+
+    void recv(void* buf, int count, int source) override {
+        ccl::recv(buf, count, source, comm, streams[0]).wait();
+    }
+
+    void Isend(const void* buf, int count, int dest, int index) override {
+        ccl::send(buf, count, dest, comm, streams[index]);
+    }
+
+    void Irecv(void* buf, int count, int source, int index) override {
+        ccl::recv(buf, count, source, comm, streams[index]);
     }
 
     void finalize() override {

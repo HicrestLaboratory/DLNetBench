@@ -1,0 +1,342 @@
+/********************************************************************* 
+ * 
+ * Description: C++/MPI proxy for Transformer-based models distributed training
+ *              with hybrid data and pipeline parallelism (DP+PP)
+ * 
+ *********************************************************************/ 
+
+#include <mpi.h>
+#include <unistd.h>
+#include <stdio.h>
+#include <string>
+#include <time.h>
+#include <stdlib.h>
+#include <assert.h>
+#include <cstdint>
+#include <cstdlib>
+#include <filesystem>
+#include <nlohmann/json.hpp>
+
+namespace fs = std::filesystem;
+using nlohmann::json;
+
+// CCUTILS headers
+#include <ccutils/mpi/mpi_timers.hpp>
+#include <ccutils/mpi/mpi_macros.hpp>
+#include <ccutils/macros.hpp>
+
+#ifdef PROXY_ENABLE_CUDA
+#include <ccutils/cuda/cuda_macros.hpp>
+#endif
+
+#ifdef PROXY_ENABLE_HIP
+#include <ccutils/hip/hip_macros.hpp>
+#endif
+
+#include <profiler/power_profiler.hpp>
+
+// Project headers
+#include "../utils.hpp"
+#include "../data_types.hpp"
+#include "../proxy_classes.hpp"
+
+#ifdef PROXY_ENABLE_NCCL
+#include <nccl.h>
+Proxy_CommType world_comm;
+#endif
+
+#ifdef PROXY_ENABLE_RCCL
+#include <rccl.h>
+Proxy_CommType world_comm;
+#endif
+
+// Device to use
+#if defined(PROXY_ENABLE_CUDA) || defined(PROXY_ENABLE_HIP)
+constexpr Device device = Device::GPU;
+#else
+constexpr Device device = Device::CPU;
+#endif
+
+// Default values
+#define WARM_UP 8
+#define RUNS 10
+#define ACC_STEP_SCALE 2
+#define POWER_SAMPLING_RATE_MS 5
+
+CCUTILS_MPI_TIMER_DEF(runtime)
+CCUTILS_MPI_TIMER_DEF(barrier)
+CCUTILS_MPI_TIMER_DEF(pp_comm)
+CCUTILS_MPI_TIMER_DEF(dp_comm)
+
+/**
+ * @brief Simulates one iteration of hybrid DP+PP training using 1F1B schedule.
+ * 
+ * @param grad_acc_step Number of micro-batches (gradient accumulation steps)
+ * @param stage_id Pipeline stage ID for this process
+ * @param num_stage Total number of pipeline stages
+ * @param pipe_msg_size Size of activations/gradients passed between stages
+ * @param fwd_rt Forward pass runtime per micro-batch (in microseconds)
+ * @param bwd_rt Backward pass runtime per micro-batch (in microseconds)
+ * @param grad_ptr Pointer to gradient buffer for DP all-reduce
+ * @param sum_grad_ptr Pointer to reduced gradient buffer
+ * @param dp_allreduce_size Size of gradient buffer for DP all-reduce
+ * @param fwd_send_buff Forward activation send buffer
+ * @param fwd_recv_buff Forward activation receive buffer
+ * @param bwd_send_buff Backward gradient send buffer
+ * @param bwd_recv_buff Backward gradient receive buffer
+ * @param dp_communicator Communicator for data-parallel all-reduce
+ * @param pp_communicator Communicator for pipeline-parallel p2p
+ * @return int Always returns 0
+ */
+int run_data_pipe_parallel(
+    int grad_acc_step, 
+    int stage_id, 
+    int num_stage,
+    uint64_t pipe_msg_size,
+    uint64_t fwd_rt,
+    uint64_t bwd_rt,
+    Tensor<_FLOAT, device>* grad_ptr,
+    Tensor<_FLOAT, device>* sum_grad_ptr,
+    uint64_t dp_allreduce_size,
+    Tensor<_FLOAT, device>* fwd_send_buff,
+    Tensor<_FLOAT, device>* fwd_recv_buff,
+    Tensor<_FLOAT, device>* bwd_send_buff,
+    Tensor<_FLOAT, device>* bwd_recv_buff,
+    ProxyCommunicator* dp_communicator,
+    ProxyCommunicator* pp_communicator)
+{
+    // 1F1B Pipeline Schedule
+    // Forward pass for all micro-batches
+    for(int i = 0; i < grad_acc_step; i++){
+        CCUTILS_MPI_TIMER_START(pp_comm)
+        if(stage_id == 0){
+            // First stage: compute then send
+            usleep(fwd_rt);
+            pp_communicator->Isend(fwd_send_buff->data, pipe_msg_size, stage_id+1, 0);
+            pp_communicator->Wait(0);
+        } 
+        else if(stage_id == num_stage-1){
+            // Last stage: receive then compute
+            pp_communicator->Irecv(fwd_recv_buff->data, pipe_msg_size, stage_id-1, 0);
+            pp_communicator->Wait(0);
+            usleep(fwd_rt);
+        } 
+        else{
+            // Middle stages: receive, compute, send
+            pp_communicator->Irecv(fwd_recv_buff->data, pipe_msg_size, stage_id-1, 0);
+            pp_communicator->Wait(0);
+            usleep(fwd_rt);
+            pp_communicator->Isend(fwd_send_buff->data, pipe_msg_size, stage_id+1, 1);
+            pp_communicator->Wait(1);
+        }
+        CCUTILS_MPI_TIMER_STOP(pp_comm)
+    }
+    
+    // Backward pass for all micro-batches
+    for(int i = 0; i < grad_acc_step; i++){
+        CCUTILS_MPI_TIMER_START(pp_comm)
+        if(stage_id == 0){
+            // First stage: receive then compute
+            pp_communicator->Irecv(bwd_recv_buff->data, pipe_msg_size, stage_id+1, 0);
+            pp_communicator->Wait(0);
+            usleep(bwd_rt);
+        } 
+        else if(stage_id == num_stage-1){
+            // Last stage: compute then send
+            usleep(bwd_rt);
+            pp_communicator->Isend(bwd_send_buff->data, pipe_msg_size, stage_id-1, 0);
+            pp_communicator->Wait(0);
+        } 
+        else{
+            // Middle stages: receive, compute, send
+            pp_communicator->Irecv(bwd_recv_buff->data, pipe_msg_size, stage_id+1, 0);
+            pp_communicator->Wait(0);
+            usleep(bwd_rt);
+            pp_communicator->Isend(bwd_send_buff->data, pipe_msg_size, stage_id-1, 1);
+            pp_communicator->Wait(1);
+        }
+        CCUTILS_MPI_TIMER_STOP(pp_comm)
+    }
+    
+    // Data-parallel all-reduce for accumulated gradients
+    CCUTILS_MPI_TIMER_START(dp_comm)
+    dp_communicator->Iallreduce(grad_ptr->data, sum_grad_ptr->data, dp_allreduce_size, 0);
+    dp_communicator->Wait(0);
+    CCUTILS_MPI_TIMER_STOP(dp_comm)
+    
+    return 0;
+}
+
+int main(int argc, char* argv[]) {
+    int rank, world_size;
+    int num_stage;
+    int acc_step_scale = ACC_STEP_SCALE;
+    
+    if(argc < 4){
+        std::cout << "Usage: mpirun -n <world_size> ./dp_pp <model_name> <num_stages> <acc_step_scale> <base_path>\n";
+        return -1;
+    }
+    
+    std::string model_name = argv[1];
+    num_stage = std::stoi(argv[2]);
+    
+    acc_step_scale = std::stoi(argv[4]);
+    
+    int grad_acc_step = num_stage * acc_step_scale;
+    
+    // --- Construct model stats file path ---
+    fs::path repo_path = get_dnnproxy_base_path(argc, argv, rank);
+    fs::path file_path = repo_path / "model_stats" / (model_name + ".txt");
+    
+    if (!fs::exists(file_path)) {
+        std::cerr << "Error: model stats file does not exist: " << file_path << "\n";
+        return -1;
+    }
+    
+    std::map<std::string, uint64_t> model_stats = get_model_stats(file_path);
+    
+    // Get model stats from file
+    uint64_t fwd_rt_whole_model = model_stats["avgForwardTime"]; // in us
+    uint64_t bwd_rt_whole_model = model_stats["avgBackwardTime"]; // in us
+    uint local_batch_size = model_stats["batchSize"];
+    uint64_t total_model_size = model_stats["modelSize"]; // number of parameters
+    uint64_t sample_size = model_stats["sampleSize"]; // size of a single sample
+    
+    // Compute per-stage and per-microbatch runtimes
+    uint64_t fwd_rt_per_stage = fwd_rt_whole_model / num_stage;
+    uint64_t bwd_rt_per_stage = bwd_rt_whole_model / num_stage;
+    
+    // Pipeline message size (activations/gradients for one micro-batch)
+    uint64_t pipe_msg_size = sample_size; // size of activations passed between stages
+    
+    // DP all-reduce size (gradients for parameters in this stage)
+    uint64_t dp_allreduce_size = total_model_size / num_stage;
+    
+    MPI_Init(&argc, &argv);
+    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    
+    CCUTILS_MPI_INIT
+    
+    // Create DP and PP communicators
+    assert(world_size % num_stage == 0);
+    int dp_size = world_size / num_stage;
+    
+    MPI_Comm dp_comm, pp_comm;
+    int dp_color = rank % num_stage; // stages with same color form DP group
+    int pp_color = rank / num_stage; // ranks with same color form PP group
+    
+    MPI_Comm_split(MPI_COMM_WORLD, dp_color, rank, &dp_comm);
+    MPI_Comm_split(MPI_COMM_WORLD, pp_color, rank, &pp_comm);
+    
+    int dp_rank, pp_rank;
+    MPI_Comm_rank(dp_comm, &dp_rank);
+    MPI_Comm_rank(pp_comm, &pp_rank);
+    
+    int stage_id = pp_rank; // stage ID is the rank in PP communicator
+    
+    // Allocate buffers
+    Tensor<_FLOAT, device>* grad_ptr = new Tensor<_FLOAT, device>(dp_allreduce_size);
+    Tensor<_FLOAT, device>* sum_grad_ptr = new Tensor<_FLOAT, device>(dp_allreduce_size);
+    
+    Tensor<_FLOAT, device>* fwd_send_buff = new Tensor<_FLOAT, device>(pipe_msg_size);
+    Tensor<_FLOAT, device>* fwd_recv_buff = new Tensor<_FLOAT, device>(pipe_msg_size);
+    Tensor<_FLOAT, device>* bwd_send_buff = new Tensor<_FLOAT, device>(pipe_msg_size);
+    Tensor<_FLOAT, device>* bwd_recv_buff = new Tensor<_FLOAT, device>(pipe_msg_size);
+    
+    MPI_Barrier(MPI_COMM_WORLD);
+    
+#ifdef PROXY_ENABLE_CCL
+    // Initialize NCCL for DP communicator
+    ncclUniqueId id;
+    if (dp_rank == 0) {
+        ncclGetUniqueId(&id);
+    }
+    MPI_Bcast(&id, sizeof(id), MPI_BYTE, 0, dp_comm);
+    ncclCommInitRank(&world_comm, dp_size, id, dp_rank);
+    CCLCommunicator* dp_communicator = new CCLCommunicator(world_comm, 1);
+    MPICommunicator* pp_communicator = new MPICommunicator(pp_comm, MPI_FLOAT, 2);
+#else
+    MPICommunicator* dp_communicator = new MPICommunicator(dp_comm, MPI_FLOAT, 1);
+    MPICommunicator* pp_communicator = new MPICommunicator(pp_comm, MPI_FLOAT, 2);
+#endif
+    
+    // Warmup
+    std::vector<float> energy_vals;
+    for(int wmp = 0; wmp < WARM_UP; wmp++){
+        run_data_pipe_parallel(grad_acc_step, stage_id, num_stage, pipe_msg_size,
+                              fwd_rt_per_stage, bwd_rt_per_stage,
+                              grad_ptr, sum_grad_ptr, dp_allreduce_size,
+                              fwd_send_buff, fwd_recv_buff, bwd_send_buff, bwd_recv_buff,
+                              dp_communicator, pp_communicator);
+    }
+    
+    std::string sub_folder = model_name + "_dp_pp_stages_" + std::to_string(num_stage) + "/";
+    std::string base_folder_path = "logs_" + std::to_string(world_size) + "/";
+    
+    for(int iter = 0; iter < RUNS; iter++){
+        std::string power_file = base_folder_path + sub_folder + "power_dp_pp_rank_" + 
+                                std::to_string(rank) + "_run_" + std::to_string(iter) + ".csv";
+        PowerProfiler powerProf(0, POWER_SAMPLING_RATE_MS, power_file);
+        
+        CCUTILS_MPI_TIMER_START(runtime)
+        powerProf.start();
+        
+        run_data_pipe_parallel(grad_acc_step, stage_id, num_stage, pipe_msg_size,
+                              fwd_rt_per_stage, bwd_rt_per_stage,
+                              grad_ptr, sum_grad_ptr, dp_allreduce_size,
+                              fwd_send_buff, fwd_recv_buff, bwd_send_buff, bwd_recv_buff,
+                              dp_communicator, pp_communicator);
+        
+        powerProf.stop();
+        float energy_consumed = powerProf.get_device_energy();
+        energy_vals.push_back(energy_consumed);
+        
+        CCUTILS_MPI_TIMER_STOP(runtime)
+    }
+    
+    char host_name[MPI_MAX_PROCESSOR_NAME];
+    int namelen;
+    MPI_Get_processor_name(host_name, &namelen);
+    
+    CCUTILS_MPI_SECTION_DEF(dp_pp, "Data + Pipeline Parallelism")
+    
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp, "model_name", model_name)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp, "num_stages", num_stage)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp, "acc_step_scale", acc_step_scale)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp, "grad_acc_step", grad_acc_step)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp, "local_batch_size", local_batch_size)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp, "global_batch_size", world_size * local_batch_size / num_stage)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp, "world_size", world_size)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp, "dp_size", dp_size)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp, "fwd_rt_per_stage", fwd_rt_per_stage)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp, "bwd_rt_per_stage", bwd_rt_per_stage)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp, "total_model_size_params", total_model_size)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp, "pipe_msg_size_bytes", pipe_msg_size * sizeof(_FLOAT))
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp, "dp_allreduce_size_bytes", dp_allreduce_size * sizeof(_FLOAT))
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp, "device", (device == Device::CPU) ? "CPU" : "GPU")
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp, "backend", dp_communicator->get_name())
+    
+    CCUTILS_SECTION_JSON_PUT(dp_pp, "runtimes", __timer_vals_runtime);
+    
+    __timer_vals_barrier.erase(__timer_vals_barrier.begin(), __timer_vals_barrier.begin() + WARM_UP);
+    __timer_vals_pp_comm.erase(__timer_vals_pp_comm.begin(), __timer_vals_pp_comm.begin() + WARM_UP);
+    __timer_vals_dp_comm.erase(__timer_vals_dp_comm.begin(), __timer_vals_dp_comm.begin() + WARM_UP);
+    
+    CCUTILS_SECTION_JSON_PUT(dp_pp, "barrier_time", __timer_vals_barrier);
+    CCUTILS_SECTION_JSON_PUT(dp_pp, "pp_comm_time", __timer_vals_pp_comm);
+    CCUTILS_SECTION_JSON_PUT(dp_pp, "dp_comm_time", __timer_vals_dp_comm);
+    CCUTILS_SECTION_JSON_PUT(dp_pp, "hostname", host_name);
+    CCUTILS_SECTION_JSON_PUT(dp_pp, "stage_id", stage_id);
+    CCUTILS_SECTION_JSON_PUT(dp_pp, "energy_consumed", energy_vals);
+    
+    CCUTILS_MPI_SECTION_END(dp_pp);
+    
+#ifdef PROXY_ENABLE_CCL
+    ncclCommDestroy(world_comm);
+#endif
+    
+    MPI_Finalize();
+    
+    return 0;
+}

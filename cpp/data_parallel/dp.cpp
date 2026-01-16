@@ -38,7 +38,9 @@ using nlohmann::json;
     #include <ccutils/hip/hip_macros.hpp>
 #endif
 
+#ifdef PROXY_ENERGY_PROFILING
 #include <profiler/power_profiler.hpp>
+#endif
 
 // Project headers
 #include "../utils.hpp"
@@ -187,16 +189,23 @@ int main(int argc, char* argv[]) {
     #endif
     std::string base_folder_path = "logs_" + std::to_string(world_size) + "/";
     for(int iter = 0; iter < RUNS; iter++){
+        #ifdef PROXY_ENERGY_PROFILING
         std::string power_file = base_folder_path + sub_folder + "power_dp_rank_" + std::to_string(rank) + "run_" + std::to_string(iter) + ".csv";
         PowerProfiler powerProf(0, POWER_SAMPLING_RATE_MS, power_file);
-
+        #endif
         CCUTILS_MPI_TIMER_START(runtime)
+        
+        #ifdef PROXY_ENERGY_PROFILING
         powerProf.start();
+        #endif
         run_data_parallel(grad_ptrs, sum_grad_ptrs, num_buckets, params_per_bucket,
                          fwd_rt_whole_model, bwd_rt_per_B, communicator);
+        
+        #ifdef PROXY_ENERGY_PROFILING
         powerProf.stop();
         float energy_consumed = powerProf.get_device_energy();
         energy_vals.push_back(energy_consumed);
+        #endif
         CCUTILS_MPI_TIMER_STOP(runtime)
     }
 
@@ -229,8 +238,10 @@ int main(int argc, char* argv[]) {
     __timer_vals_barrier.erase(__timer_vals_barrier.begin(), __timer_vals_barrier.begin() + WARM_UP); // remove the warm-up barriers
     CCUTILS_SECTION_JSON_PUT(dp, "barrier_time", __timer_vals_barrier);
     CCUTILS_SECTION_JSON_PUT(dp, "hostname", host_name);
-    CCUTILS_SECTION_JSON_PUT(dp, "energy_consumed", energy_vals);
 
+    #ifdef PROXY_ENERGY_PROFILING
+    CCUTILS_SECTION_JSON_PUT(dp, "energy_consumed", energy_vals);
+    #endif
     CCUTILS_MPI_SECTION_END(dp);
 
     #ifdef PROXY_ENABLE_CLL
