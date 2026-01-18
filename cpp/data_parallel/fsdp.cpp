@@ -24,7 +24,9 @@ namespace fs = std::filesystem;
 #include <ccutils/mpi/mpi_timers.hpp>
 #include <ccutils/mpi/mpi_macros.hpp>
 
+#ifdef PROXY_ENERGY_PROFILING
 #include <profiler/power_profiler.hpp>
+#endif
 
 #include "../utils.hpp"
 #include "../data_types.hpp"
@@ -273,19 +275,13 @@ int main(int argc, char* argv[]) {
                  num_replicas, unit_comm_proxy, allreduce_comm_proxy);
 
     
-    std::vector<float> energy_vals;
-    for(int i = 0; i < RUNS; i++){
-        std::string power_file = "logs/power_fsdp_rank_" + std::to_string(rank) + "run_" + std::to_string(i) + ".csv";
-        PowerProfiler powerProf(0, POWER_SAMPLING_RATE_MS, power_file);
+    // std::vector<float> energy_vals;
+    for(int i = 0; i < RUNS; i++){ //TODO: add energy profiling
         CCUTILS_MPI_TIMER_START(runtime);
-        powerProf.start();
         run_fsdp(shard_params, allgather_buf, allreduce_params,
                  fwd_rt_whole_unit, bwd_rt_whole_unit,
                  num_units, sharding_factor, max_params_per_shard,
                  num_replicas, unit_comm_proxy, allreduce_comm_proxy);
-        powerProf.stop();
-        float energy_consumed = powerProf.get_device_energy();
-        energy_vals.push_back(energy_consumed);
         CCUTILS_MPI_TIMER_STOP(runtime);
     } 
 
@@ -312,7 +308,7 @@ int main(int argc, char* argv[]) {
     CCUTILS_SECTION_JSON_PUT(fsdp, "allgather_wait_bwd", __timer_vals_allgather_wait_bwd)
     CCUTILS_SECTION_JSON_PUT(fsdp, "reduce_scatter", __timer_vals_reduce_scatter)
     CCUTILS_SECTION_JSON_PUT(fsdp, "barrier", __timer_vals_barrier)
-    CCUTILS_SECTION_JSON_PUT(fsdp, "energy_consumed", energy_vals);
+    // CCUTILS_SECTION_JSON_PUT(fsdp, "energy_consumed", energy_vals);
     CCUTILS_SECTION_JSON_PUT(fsdp, "hostname", host_name);
     CCUTILS_SECTION_JSON_PUT(fsdp, "rank", rank);
 
