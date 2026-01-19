@@ -177,7 +177,7 @@ def extract_dp_metrics_df(dp_section, job_vars):
                 "rank": rank,
                 "runtime": rt,
                 "barrier_time": bt,
-                "energy_consumed": energy_consumed
+                # "energy_consumed": energy_consumed
             }
             rows.append(row)
 

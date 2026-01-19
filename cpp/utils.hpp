@@ -44,30 +44,27 @@ namespace fs = std::filesystem;
 fs::path get_dnnproxy_base_path(int argc, char* argv[], int rank) {
     fs::path base_path;
 
-    // If the user provided a base path as the last argument, prepend $HOME
+    fs::path cwd;
+    try {
+        cwd = fs::current_path();
+    } catch (const fs::filesystem_error& e) {
+        if (rank == 0)
+            std::cerr << "Error: cannot determine current working directory.\n";
+        throw;
+    }
+
+    // If the user provided a base path as the last argument, use it relative to CWD
     if (argc > 1) {
-        const char* home = std::getenv("HOME");
-        if (!home) {
-            if (rank == 0)
-                std::cerr << "Error: HOME environment variable not set.\n";
-            throw std::runtime_error("HOME not set");
-        }
-        // Prepend home to the user-provided relative path
-        base_path = fs::path(home) / argv[argc - 1];
+        base_path = cwd / argv[argc - 1];
     } else {
-        // Default fallback if no argument is provided
-        const char* home = std::getenv("HOME");
-        if (!home) {
-            if (rank == 0)
-                std::cerr << "Error: HOME environment variable not set and no base path provided.\n";
-            throw std::runtime_error("HOME not set and no base path provided");
-        }
-        base_path = fs::path(home) / "DNNProxy";
+        // Default fallback
+        base_path = cwd / "DNNProxy";
     }
 
     if (!fs::exists(base_path) || !fs::is_directory(base_path)) {
         if (rank == 0)
-            std::cerr << "Error: DNNProxy folder does not exist at: " << base_path << "\n";
+            std::cerr << "Error: DNNProxy folder does not exist at: "
+                      << base_path << "\n";
         throw std::runtime_error("DNNProxy folder not found");
     }
 
@@ -182,8 +179,8 @@ std::map<std::string, uint64_t> get_model_stats(std::string filename){
     std::getline(file, line); // Experts (optional)
     uint64_t experts = std::stoull(extract_value(line));
 
-    std::getline(file, line); // in case there are more lines
-    uint64_t sample_size = std::stoull(extract_value(line));
+    // std::getline(file, line); // in case there are more lines
+    // uint64_t sample_size = std::stoull(extract_value(line));
 
     model_stats["forwardFlops"] = forwardFlops;
     model_stats["backwardFlops"] = backwardFlops;
@@ -194,7 +191,7 @@ std::map<std::string, uint64_t> get_model_stats(std::string filename){
     model_stats["ffn_avgForwardTime"] = ffn_avgForwardTime;
     model_stats["ffn_avgBackwardTime"] = ffn_avgBackwardTime;
     model_stats["experts"] = experts;
-    model_stats["sampleSize"] = sample_size;
+    // model_stats["sampleSize"] = sample_size;
 
     return model_stats;   
 }
