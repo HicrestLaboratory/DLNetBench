@@ -20,6 +20,11 @@ plt.rc('ytick', labelsize=FONT_TICKS)   # fontsize of the tick labels
 plt.rc('legend', fontsize=FONT_LEGEND)  # legend fontsize
 plt.rc('figure', titlesize=FONT_TITLE)  # fontsize of the figure title
 
+PROTOCOL = ["Simple", "LL", "LL128"]
+ALGO = ["ring", "tree", "nvls", "collnet"]
+THREADS = ["64","128", "256", "512"]
+CHANNELS = ["2", "4", "8", "16", "32"]
+
 
 def plot_runtime_scaling(df, model_name, bucket_size=None, local_batch_size=None, runs_per_rank=50, networks=["ib", "eth"], colors=None, networks_labels=None):
     """
@@ -146,3 +151,4 @@ if __name__ == "__main__":
     networks_labels = {
         "boost_usr_prod": "boost_usr_prod",
     }
+    

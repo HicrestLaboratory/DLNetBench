@@ -1,6 +1,7 @@
 #Executable
 *dp
 *fsdp
+*hybrid_2d
 
 #Other
 *vscode
@@ -12,3 +13,5 @@ __pycache__/
 
 #SbatchMan
 SbatchMan*
+
+logs*

@@ -191,7 +191,7 @@ int main(int argc, char* argv[]) {
     for(int iter = 0; iter < RUNS; iter++){
         #ifdef PROXY_ENERGY_PROFILING
         std::string power_file = base_folder_path + sub_folder + "power_dp_rank_" + std::to_string(rank) + "run_" + std::to_string(iter) + ".csv";
-        PowerProfiler powerProf(0, POWER_SAMPLING_RATE_MS, power_file);
+        PowerProfiler powerProf(rank%4, POWER_SAMPLING_RATE_MS, power_file);
         #endif
         CCUTILS_MPI_TIMER_START(runtime)
         
