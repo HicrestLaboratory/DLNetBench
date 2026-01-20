@@ -28,6 +28,11 @@ namespace fs = std::filesystem;
 #include <profiler/power_profiler.hpp>
 #endif
 
+#ifdef PROXY_ENABLE_ONECCL
+#include <oneapi/ccl.hpp>
+#include <CL/sycl.hpp>
+#endif
+
 #include "../utils.hpp"
 #include "../data_types.hpp"
 #include "../proxy_classes.hpp"
@@ -238,7 +243,7 @@ int main(int argc, char* argv[]) {
     CCUTILS_HIP_CHECK(hipSetDevice(rank % num_gpus));
 #endif
     
-    #ifdef PROXY_ENABLE_CCL 
+#ifdef PROXY_ENABLE_CCL 
     ncclUniqueId id;
     if (rank == 0) {
         ncclGetUniqueId(&id);
@@ -252,10 +257,60 @@ int main(int argc, char* argv[]) {
     ncclCommSplit(world_comm, shard_index_color, rank, &allreduce_nccl_comm, NULL);
     CCLCommunicator* unit_comm_proxy = new CCLCommunicator(unit_nccl_comm, num_units);
     CCLCommunicator* allreduce_comm_proxy = new CCLCommunicator(allreduce_nccl_comm, num_units);  
-    #else
+#elif defined(PROXY_ENABLE_ONECCL)
+    // Select GPU devices
+    std::vector<sycl::device> gpus = sycl::device::get_devices(sycl::info::device_type::gpu);
+    int num_gpus = gpus.size();
+
+    // --- UNIT communicator ---
+    sycl::device unit_dev = gpus[unit_rank % num_gpus];
+    sycl::context unit_ctx(unit_dev);
+    sycl::queue unit_queue(unit_ctx, unit_dev);
+
+    // Create KVS for unit communicator
+    ccl::shared_ptr_class<ccl::kvs> unit_kvs;
+    if (unit_rank == 0) unit_kvs = ccl::create_main_kvs();
+
+    // Serialize & broadcast KVS via MPI
+    std::vector<char> unit_addr;
+    if (unit_rank == 0) unit_addr = unit_kvs->get_address();
+    size_t unit_addr_size = unit_addr.size();
+    MPI_Bcast(&unit_addr_size, 1, MPI_UNSIGNED_LONG, 0, unit_comm);
+    if (unit_rank != 0) unit_addr.resize(unit_addr_size);
+    MPI_Bcast(unit_addr.data(), unit_addr_size, MPI_BYTE, 0, unit_comm);
+
+    if (unit_rank != 0) unit_kvs = ccl::create_kvs(unit_addr);
+
+    // Create OneCCL unit communicator
+    auto unit_world_comm = ccl::create_communicator(num_units, unit_rank, unit_kvs, unit_ctx);
+    OneCCLCommunicator* unit_comm_proxy = new OneCCLCommunicator(unit_world_comm, num_units);
+
+    // --- ALLREDUCE communicator ---
+    sycl::device allreduce_dev = gpus[allreduce_rank % num_gpus];
+    sycl::context allreduce_ctx(allreduce_dev);
+    sycl::queue allreduce_queue(allreduce_ctx, allreduce_dev);
+
+    // Create KVS for allreduce communicator
+    ccl::shared_ptr_class<ccl::kvs> allreduce_kvs;
+    if (allreduce_rank == 0) allreduce_kvs = ccl::create_main_kvs();
+
+    // Serialize & broadcast KVS via MPI
+    std::vector<char> allreduce_addr;
+    if (allreduce_rank == 0) allreduce_addr = allreduce_kvs->get_address();
+    size_t allreduce_addr_size = allreduce_addr.size();
+    MPI_Bcast(&allreduce_addr_size, 1, MPI_UNSIGNED_LONG, 0, allreduce_comm);
+    if (allreduce_rank != 0) allreduce_addr.resize(allreduce_addr_size);
+    MPI_Bcast(allreduce_addr.data(), allreduce_addr_size, MPI_BYTE, 0, allreduce_comm);
+
+    if (allreduce_rank != 0) allreduce_kvs = ccl::create_kvs(allreduce_addr);
+
+    // Create OneCCL allreduce communicator
+    auto allreduce_world_comm = ccl::create_communicator(num_units, allreduce_rank, allreduce_kvs, allreduce_ctx);
+    OneCCLCommunicator* allreduce_comm_proxy = new OneCCLCommunicator(allreduce_world_comm, num_units);
+#else
     MPICommunicator* unit_comm_proxy = new MPICommunicator(unit_comm, MPI_FLOAT, num_units);
     MPICommunicator* allreduce_comm_proxy = new MPICommunicator(allreduce_comm, MPI_FLOAT, num_units);
-    #endif
+#endif
 
     // Allocate buffers (padded)
     Tensor<_FLOAT, device>* shard_params[num_units];

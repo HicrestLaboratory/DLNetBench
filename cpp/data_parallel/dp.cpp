@@ -42,6 +42,11 @@ using nlohmann::json;
 #include <profiler/power_profiler.hpp>
 #endif
 
+#ifdef PROXY_ENABLE_ONECCL
+#include <oneapi/ccl.hpp>
+#include <CL/sycl.hpp>
+#endif
+
 // Project headers
 #include "../utils.hpp"
 #include "../data_types.hpp"
@@ -167,9 +172,41 @@ int main(int argc, char* argv[]) {
     MPI_Bcast(&id, sizeof(id), MPI_BYTE, 0, MPI_COMM_WORLD);
     ncclCommInitRank(&world_comm, world_size, id, rank);
     CCLCommunicator* communicator = new CCLCommunicator(world_comm, num_buckets);
-    #else
+#elif defined(PROXY_ENABLE_ONECCL)
+    // Select GPU devices
+    std::vector<sycl::device> gpus = sycl::device::get_devices(sycl::info::device_type::gpu);
+    int num_gpus = gpus.size();
+    sycl::device dev = gpus[rank % num_gpus];
+    sycl::context ctx(dev);
+    sycl::queue queue(ctx, dev);
+
+    // Initialize oneCCL
+    ccl::init();
+
+    // Create KVS (acts like ncclUniqueId)
+    ccl::shared_ptr_class<ccl::kvs> kvs;
+    if (rank == 0) {
+        kvs = ccl::create_main_kvs();
+    }
+
+    // Serialize and broadcast KVS address via MPI
+    std::vector<char> kvs_addr;
+    if (rank == 0) kvs_addr = kvs->get_address();
+
+    size_t addr_size = kvs_addr.size();
+    MPI_Bcast(&addr_size, 1, MPI_UNSIGNED_LONG, 0, MPI_COMM_WORLD);
+
+    if (rank != 0) kvs_addr.resize(addr_size);
+    MPI_Bcast(kvs_addr.data(), addr_size, MPI_BYTE, 0, MPI_COMM_WORLD);
+
+    if (rank != 0) kvs = ccl::create_kvs(kvs_addr);
+
+    // Create communicator
+    auto world_comm_ccl = ccl::create_communicator(world_size, rank, kvs, ctx);
+    OneCCLCommunicator* communicator = new OneCCLCommunicator(world_comm_ccl, num_buckets);    
+#else
     MPICommunicator* communicator = new MPICommunicator(MPI_COMM_WORLD, MPI_FLOAT, num_buckets);
-    #endif
+#endif
 
     Tensor<_FLOAT, device>* grad_ptrs[num_buckets];
     Tensor<_FLOAT, device>* sum_grad_ptrs[num_buckets];

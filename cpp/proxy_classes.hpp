@@ -125,8 +125,6 @@ private:
 
 };
 
-//TODO: add oneCCL class
-
 #ifdef PROXY_ENABLE_CCL //NCCL or RCCL
 class CCLCommunicator : public ProxyCommunicator {
 public:
@@ -245,31 +243,32 @@ private:
 class OneCCLCommunicator : public ProxyCommunicator {
 public:
     OneCCLCommunicator(ccl::communicator comm, int num_streams = 1)
-        : comm(comm), num_streams(num_streams) 
+        : comm(comm), num_streams(num_streams)
     {
-        streams = new sycl::queue[num_streams];
+        // create one queue per stream
+        streams.resize(num_streams);
         for (int i = 0; i < num_streams; i++) {
-            streams[i] = sycl::queue(sycl::gpu_selector_v); // create queue
+            streams[i] = sycl::queue(sycl::gpu_selector_v);
         }
     }
 
     // Non-blocking allreduce
     void Iallreduce(const void* sendbuf, void* recvbuf, int count, int index) override {
-        ccl::allreduce(sendbuf, recvbuf, count, ccl::reduction::sum, comm, streams[index]).wait();
+        events.push_back(ccl::allreduce(sendbuf, recvbuf, count, ccl::reduction::sum, comm, streams[index]));
     }
 
     void WaitAll(int num_waits) override {
-        // nothing to do, events already waited in Iallreduce
-    }
-
-    void Barrier() override {
-        // oneCCL has barrier via allreduce with zero data
-        char dummy = 0;
-        ccl::allreduce(&dummy, &dummy, 1, ccl::reduction::sum, comm, streams[0]).wait();
+        for (auto& e : events) e.wait();
+        events.clear();
     }
 
     void Wait(int index) override {
-        // no-op if you already waited on events
+        if (index < events.size()) events[index].wait();
+    }
+
+    void Barrier() override {
+        // oneCCL barrier via allreduce of zero bytes
+        ccl::barrier(comm, streams[0]).wait();
     }
 
     void Allgather(const void* sendbuf, int sendcount, void* recvbuf, int recvcount) override {
@@ -277,7 +276,7 @@ public:
     }
 
     void Iallgather(const void* sendbuf, int sendcount, void* recvbuf, int recvcount, int index) override {
-        ccl::allgather(sendbuf, recvbuf, sendcount, comm, streams[index]).wait();
+        events.push_back(ccl::allgather(sendbuf, recvbuf, sendcount, comm, streams[index]));
     }
 
     void Reduce_Scatter_block(const void* sendbuf, void* recvbuf, int recvcount) override {
@@ -293,25 +292,25 @@ public:
     }
 
     void Isend(const void* buf, int count, int dest, int index) override {
-        ccl::send(buf, count, dest, comm, streams[index]);
+        events.push_back(ccl::send(buf, count, dest, comm, streams[index]));
     }
 
     void Irecv(void* buf, int count, int source, int index) override {
-        ccl::recv(buf, count, source, comm, streams[index]);
+        events.push_back(ccl::recv(buf, count, source, comm, streams[index]));
     }
 
     void finalize() override {
-        delete[] streams; // queues automatically cleaned up
+        events.clear();
+        streams.clear();
     }
 
-    std::string get_name() override {
-        return "oneCCL";
-    }
+    std::string get_name() override { return "oneCCL"; }
 
 private:
     ccl::communicator comm;
     int num_streams;
-    sycl::queue* streams = nullptr;
+    std::vector<sycl::queue> streams;
+    std::vector<ccl::event> events;
 };
 #endif
 
