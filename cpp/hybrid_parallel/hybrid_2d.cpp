@@ -191,6 +191,9 @@ int main(int argc, char* argv[]) {
     uint64_t total_model_size = model_stats["modelSize"]; // number of parameters
     float sample_size_bytes = (float)model_stats["sampleSize"]; // size of a single sample in bytes
     
+    assert(local_batch_size % num_microbatches == 0);
+    assert(world_size % num_stage == 0);
+
     // Compute per-stage and per-microbatch runtimes
     // fwd_rt_whole_model and bwd_rt_whole_model are already for the full batch_size
     uint64_t fwd_rt_per_stage = fwd_rt_whole_model / num_stage;
