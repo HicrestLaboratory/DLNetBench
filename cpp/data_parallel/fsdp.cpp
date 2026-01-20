@@ -228,6 +228,35 @@ int main(int argc, char* argv[]) {
     MPI_Comm allreduce_comm;
     MPI_Comm_split(MPI_COMM_WORLD, shard_index_color, rank, &allreduce_comm);
 
+#if defined(PROXY_ENABLE_CUDA)
+    int num_gpus;
+    cudaGetDeviceCount(&num_gpus);
+    CCUTILS_CUDA_CHECK(cudaSetDevice(rank % num_gpus));
+#elif defined(PROXY_ENABLE_HIP)
+    int num_gpus;
+    hipGetDeviceCount(&num_gpus);
+    CCUTILS_HIP_CHECK(hipSetDevice(rank % num_gpus));
+#endif
+    
+    #ifdef PROXY_ENABLE_CCL 
+    ncclUniqueId id;
+    if (rank == 0) {
+        ncclGetUniqueId(&id);
+    }
+    MPI_Bcast(&id, sizeof(id), MPI_BYTE, 0, MPI_COMM_WORLD);
+    ncclCommInitRank(&world_comm, world_size, id, rank);
+    // create NCCL communicators for unit_comm and allreduce_comm
+    ncclComm_t unit_nccl_comm;
+    ncclComm_t allreduce_nccl_comm;
+    ncclCommSplit(world_comm, replica_color, rank, &unit_nccl_comm, NULL);
+    ncclCommSplit(world_comm, shard_index_color, rank, &allreduce_nccl_comm, NULL);
+    CCLCommunicator* unit_comm_proxy = new CCLCommunicator(unit_nccl_comm, num_units);
+    CCLCommunicator* allreduce_comm_proxy = new CCLCommunicator(allreduce_nccl_comm, num_units);  
+    #else
+    MPICommunicator* unit_comm_proxy = new MPICommunicator(unit_comm, MPI_FLOAT, num_units);
+    MPICommunicator* allreduce_comm_proxy = new MPICommunicator(allreduce_comm, MPI_FLOAT, num_units);
+    #endif
+
     // Allocate buffers (padded)
     Tensor<_FLOAT, device>* shard_params[num_units];
     Tensor<_FLOAT, device>* allreduce_params[num_units];
@@ -247,26 +276,6 @@ int main(int argc, char* argv[]) {
 
     float fwd_rt_whole_unit = (float)fwd_rt_whole_model / num_units;
     float bwd_rt_whole_unit = (float)bwd_rt_whole_model / num_units;
-
-
-    #ifdef PROXY_ENABLE_CCL 
-    ncclUniqueId id;
-    if (rank == 0) {
-        ncclGetUniqueId(&id);
-    }
-    MPI_Bcast(&id, sizeof(id), MPI_BYTE, 0, MPI_COMM_WORLD);
-    ncclCommInitRank(&world_comm, world_size, id, rank);
-    // create NCCL communicators for unit_comm and allreduce_comm
-    ncclComm_t unit_nccl_comm;
-    ncclComm_t allreduce_nccl_comm;
-    ncclCommSplit(world_comm, replica_color, rank, &unit_nccl_comm, NULL);
-    ncclCommSplit(world_comm, shard_index_color, rank, &allreduce_nccl_comm, NULL);
-    CCLCommunicator* unit_comm_proxy = new CCLCommunicator(unit_nccl_comm, num_units);
-    CCLCommunicator* allreduce_comm_proxy = new CCLCommunicator(allreduce_nccl_comm, num_units);  
-    #else
-    MPICommunicator* unit_comm_proxy = new MPICommunicator(unit_comm, MPI_FLOAT, num_units);
-    MPICommunicator* allreduce_comm_proxy = new MPICommunicator(allreduce_comm, MPI_FLOAT, num_units);
-    #endif
 
     for(int i = 0; i < WARM_UP; i++)
         run_fsdp(shard_params, allgather_buf, allreduce_params,

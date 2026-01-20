@@ -149,14 +149,15 @@ int main(int argc, char* argv[]) {
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     CCUTILS_MPI_INIT
 
-    Tensor<_FLOAT, device>* grad_ptrs[num_buckets];
-    Tensor<_FLOAT, device>* sum_grad_ptrs[num_buckets];
-    for(int i=0; i<num_buckets; i++){
-        grad_ptrs[i] = new Tensor<_FLOAT, device>(params_per_bucket[i]);
-        sum_grad_ptrs[i] = new Tensor<_FLOAT, device>(params_per_bucket[i]);
-    }
-
-    MPI_Barrier(MPI_COMM_WORLD);
+#if defined(PROXY_ENABLE_CUDA)
+    int num_gpus;
+    cudaGetDeviceCount(&num_gpus);
+    CCUTILS_CUDA_CHECK(cudaSetDevice(rank % num_gpus));
+#elif defined(PROXY_ENABLE_HIP)
+    int num_gpus;
+    hipGetDeviceCount(&num_gpus);
+    CCUTILS_HIP_CHECK(hipSetDevice(rank % num_gpus));
+#endif
 
     #ifdef PROXY_ENABLE_CCL
     ncclUniqueId id;
@@ -169,6 +170,15 @@ int main(int argc, char* argv[]) {
     #else
     MPICommunicator* communicator = new MPICommunicator(MPI_COMM_WORLD, MPI_FLOAT, num_buckets);
     #endif
+
+    Tensor<_FLOAT, device>* grad_ptrs[num_buckets];
+    Tensor<_FLOAT, device>* sum_grad_ptrs[num_buckets];
+    for(int i=0; i<num_buckets; i++){
+        grad_ptrs[i] = new Tensor<_FLOAT, device>(params_per_bucket[i]);
+        sum_grad_ptrs[i] = new Tensor<_FLOAT, device>(params_per_bucket[i]);
+    }
+
+    MPI_Barrier(MPI_COMM_WORLD);
 
     //warmup
     std::vector<float> energy_vals;
@@ -191,7 +201,7 @@ int main(int argc, char* argv[]) {
     for(int iter = 0; iter < RUNS; iter++){
         #ifdef PROXY_ENERGY_PROFILING
         std::string power_file = base_folder_path + sub_folder + "power_dp_rank_" + std::to_string(rank) + "run_" + std::to_string(iter) + ".csv";
-        PowerProfiler powerProf(rank%4, POWER_SAMPLING_RATE_MS, power_file);
+        PowerProfiler powerProf(rank % num_gpus, POWER_SAMPLING_RATE_MS, power_file);
         #endif
         CCUTILS_MPI_TIMER_START(runtime)
         

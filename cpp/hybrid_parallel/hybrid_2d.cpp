@@ -235,13 +235,19 @@ int main(int argc, char* argv[]) {
     
     int stage_id = pp_rank; // stage ID is the rank in PP communicator
 
-#ifdef PROXY_ENABLE_CCL
-//SetDevice for CCL
+
 #if defined(PROXY_ENABLE_CUDA)
-    CCUTILS_CUDA_CHECK(cudaSetDevice(dp_rank % CCUTILS_CUDA_GET_DEVICE_COUNT()));
+    int num_gpus;
+    cudaGetDeviceCount(&num_gpus);
+    CCUTILS_CUDA_CHECK(cudaSetDevice(rank % num_gpus));
 #elif defined(PROXY_ENABLE_HIP)
-    CCUTILS_HIP_CHECK(hipSetDevice(dp_rank % CCUTILS_HIP_GET_DEVICE_COUNT()));
+    int num_gpus;
+    hipGetDeviceCount(&num_gpus);
+    CCUTILS_HIP_CHECK(hipSetDevice(rank % num_gpus));
 #endif
+
+
+#ifdef PROXY_ENABLE_CCL
     // Initialize CCL for DP communicator
     ncclUniqueId dp_id;
     if (dp_rank == 0) {
@@ -265,6 +271,8 @@ int main(int argc, char* argv[]) {
     Proxy_CommType pp_world_comm;
     ncclCommInitRank(&pp_world_comm, pp_size, pp_id, pp_rank);
     CCLCommunicator* pp_communicator = new CCLCommunicator(pp_world_comm, 2);
+#elif defined(PROXY_ENABLE_ONECCL)
+
 #else
     MPICommunicator* dp_communicator = new MPICommunicator(dp_comm, MPI_FLOAT, 1);
     MPICommunicator* pp_communicator = new MPICommunicator(pp_comm, MPI_FLOAT, 2);
@@ -300,7 +308,7 @@ int main(int argc, char* argv[]) {
         #ifdef PROXY_ENERGY_PROFILING
         std::string power_file = base_folder_path + sub_folder + "power_dp_pp_rank_" + 
                                 std::to_string(rank) + "_run_" + std::to_string(iter) + ".csv";
-        PowerProfiler powerProf(0, POWER_SAMPLING_RATE_MS, power_file);
+        PowerProfiler powerProf(rank % num_gpus, POWER_SAMPLING_RATE_MS, power_file);
         #endif
         CCUTILS_MPI_TIMER_START(runtime)
         #ifdef PROXY_ENERGY_PROFILING
