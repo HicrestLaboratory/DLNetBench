@@ -1,4 +1,4 @@
-WITH_MPI ?= 1 # enable mpi
+WITH_MPI ?= 1
 PROXY_CUDA ?= 0 # enable cuda
 PROXY_HIP ?= 0 # enable hip
 HALF ?= 0 # enable half precision (requires NCCL or RCCL)
@@ -65,18 +65,15 @@ endif
 CXXFLAGS += -I$(CCUTILS_INCLUDE)
 
 ifeq ($(WITH_MPI),1)
-MPI_CFLAGS := $(shell mpicxx --showme:compile)
-MPI_LIBS   := $(shell mpicxx --showme:link)
-	
-ifeq ($(PROXY_CUDA),1)
-export OMPI_MCA_opal_cuda_support=1
-# Filter out -pthread for nvcc
-CXXFLAGS += $(filter-out -pthread, $(MPI_CFLAGS)) -DWITH_MPI -DCCUTILS_ENABLE_MPI
-MPI_LIBS := $(filter-out -pthread,$(MPI_LIBS))
-else
-	CXXFLAGS  += $(MPI_CFLAGS) -DWITH_MPI -DCCUTILS_ENABLE_MPI
-endif
-
+	MPI_CFLAGS := $(shell mpicxx --showme:compile)
+	MPI_LIBS   := $(shell mpicxx --showme:link)
+	ifeq ($(PROXY_CUDA),1)
+		export OMPI_MCA_opal_cuda_support=1
+		CXXFLAGS += $(filter-out -pthread, $(MPI_CFLAGS)) -DWITH_MPI -DCCUTILS_ENABLE_MPI
+		MPI_LIBS := $(filter-out -pthread,$(MPI_LIBS))
+	else
+		CXXFLAGS += $(MPI_CFLAGS) -DWITH_MPI -DCCUTILS_ENABLE_MPI
+	endif
 endif
 
 DP_PATH = ./data_parallel
@@ -94,6 +91,9 @@ fsdp:
 
 hybrid_2d:
 	$(CXX) $(CXXFLAGS) $(MPI_LIBS) -o $(HYBRID_PATH)/hybrid_2d $(HYBRID_PATH)/hybrid_2d.cpp $(LDFLAGS)
+
+hybrid_3d:
+	$(CXX) $(CXXFLAGS) $(MPI_LIBS) -o $(HYBRID_PATH)/hybrid_3d $(HYBRID_PATH)/hybrid_3d.cpp $(LDFLAGS)
 
 clean:
 	rm -f $(DP_PATH)/dp $(DP_PATH)/fsdp

@@ -2,16 +2,19 @@
 *dp
 *fsdp
 *hybrid_2d
+*hybrid_3d
+*hybrid_4d
 
 #Other
 *vscode
 *.ipynb*
 *.txt
+*.csv
+*.png
+logs*
 
 #Python cache
 __pycache__/
 
 #SbatchMan
 SbatchMan*
-
-logs*

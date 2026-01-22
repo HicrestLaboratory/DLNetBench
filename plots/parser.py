@@ -14,6 +14,7 @@ sys.path.append(f"{home}")
 from ccutils.parser.ccutils_parser import *
 
 JOB_DIR=""
+NUM_GPUS=4  # Default number of GPUs per node
 
 def extract_fsdp_metrics_df(fsdp_section, job_vars):
     """
@@ -106,7 +107,7 @@ def validate_dp_output(
     # ---- rank check ----
     try:
         ranks = sorted(rank_outputs.keys())
-        expected_ranks = list(range(world_size))
+        expected_ranks = list(range(world_size*gpus_per_node))
 
         if ranks != expected_ranks:
             print(
@@ -123,7 +124,7 @@ def validate_dp_output(
             parsed = json.loads(json_str)
             hostnames.add(parsed["hostname"])
 
-        expected_hosts = world_size // gpus_per_node
+        expected_hosts = world_size
 
         if len(hostnames) != expected_hosts:
             print(
@@ -135,18 +136,23 @@ def validate_dp_output(
         print(f"[DP VALIDATION][HOSTNAME][EXCEPTION] {e}")
 
 
-def extract_dp_metrics_df(dp_section, job_vars):
+def extract_dp_metrics_df(dp_section, job_vars, cluster_name='leonardo'):
     """
     Extract DP metrics from a Section object and job variables into a Pandas DataFrame.
     Returns a DataFrame with one row per rank measurement.
     """
     json_data = dp_section.json_data
 
-    world_size = job_vars.get("nodes", json_data.get("world_size"))
-    network_type = job_vars.get("partition", "unknown")
+    world_size = int(job_vars.get("nodes", json_data.get("world_size")))
+    network_type = cluster_name
     model_name = job_vars.get("models", json_data.get("model_name"))
     local_batch_size = json_data.get("local_batch_size")
     num_buckets = job_vars.get("num_buckets", json_data.get("num_buckets"))
+    protocol = job_vars.get("protocol")
+    channels = job_vars.get("channels")
+    threads = job_vars.get("threads")
+    algorithm = job_vars.get("algorithm")
+
     fwd_rt = json_data.get("fwd_rt_whole_model")
     bwd_rt = json_data.get("bwd_rt_per_bucket")
     msg_avg = json_data.get("msg_size_avg_bytes")
@@ -157,19 +163,25 @@ def extract_dp_metrics_df(dp_section, job_vars):
 
     validate_dp_output(rank_outputs, world_size)
 
+    world_size = world_size * NUM_GPUS  # Adjust for total ranks
+
     for rank, json_str in rank_outputs.items():
         parsed = json.loads(json_str)
         runtimes = parsed["runtimes"]
         barrier_times = parsed["barrier_time"]
-        energy_consumed = parsed["energy_consumed"]
+        energy = parsed['energy_consumed']
 
-        for rt, bt in zip(runtimes, barrier_times):
+        for rt, bt, en in zip(runtimes, barrier_times, energy):
             row = {
                 "network": network_type,
                 "world_size": world_size,
                 "model_name": model_name,
                 "local_batch_size": local_batch_size,
                 "num_buckets": num_buckets,
+                "protocol": protocol,
+                "channels": channels,
+                "threads": threads,
+                "algorithm": algorithm,
                 "fwd_rt_whole_model": fwd_rt,
                 "bwd_rt_per_bucket": bwd_rt,
                 "msg_size_avg_bytes": msg_avg,
@@ -177,7 +189,7 @@ def extract_dp_metrics_df(dp_section, job_vars):
                 "rank": rank,
                 "runtime": rt,
                 "barrier_time": bt,
-                # "energy_consumed": energy_consumed
+                "energy_consumed": en,
             }
             rows.append(row)
 
@@ -220,9 +232,10 @@ def get_metrics_dataframe(strategy: str = "dp"):
             print(f"Failed to parse job output for job {job}: {e}\n\n")
             continue
         section = parser_output.get(strategy)
+        cluster_name = job.cluster_name
         if section:
             job_vars = job.variables
-            df_or_tuple = extract_metrics_df(strategy)(section, job_vars)
+            df_or_tuple = extract_metrics_df(strategy)(section, job_vars, cluster_name)
             all_dfs.append(df_or_tuple)
 
     if not all_dfs:
@@ -245,4 +258,4 @@ def get_metrics_dataframe(strategy: str = "dp"):
 
 if __name__ == "__main__":
     df = get_metrics_dataframe('dp')
-    print(df.head())
+    df.to_csv("dp_leonardo_intra.csv", index=False)

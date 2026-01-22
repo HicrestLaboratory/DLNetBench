@@ -151,4 +151,14 @@ if __name__ == "__main__":
     networks_labels = {
         "boost_usr_prod": "boost_usr_prod",
     }
+
+    plot_barrier_scatter_by_bucket(
+        df,
+        model_name="vit_l_16_128",
+        world_size=4,
+        networks=["ib", "eth", "boost_usr_prod"],
+        colors=colors,
+        networks_labels=networks_labels,
+        runs_per_rank=50
+    )
     
