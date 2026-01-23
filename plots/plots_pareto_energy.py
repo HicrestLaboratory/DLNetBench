@@ -36,7 +36,8 @@ sns.set_theme()
 def aggregate_by_configuration(df: pd.DataFrame) -> pd.DataFrame:
     """
     Aggregate runtime and energy per configuration.
-    Averages across ranks and runs.
+    - Runtime: averaged across ranks and runs (parallel execution)
+    - Energy: summed across ranks, then averaged across runs (total system energy)
     """
     agg = (
         df.groupby(
@@ -45,7 +46,7 @@ def aggregate_by_configuration(df: pd.DataFrame) -> pd.DataFrame:
         )
         .agg(
             runtime=('runtime', 'mean'),
-            energy_consumed=('energy_consumed', 'mean'),
+            energy_consumed=('energy_consumed', 'sum'),  # Changed from 'mean' to 'sum'
             num_measurements=('rank', 'count')
         )
     )
