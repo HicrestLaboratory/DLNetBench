@@ -1,7 +1,13 @@
 /********************************************************************* 
  * 
  * Description: C++/MPI proxy for Transformer-based models distributed training
- *              with hybrid data, pipeline, and tensor parallelism (DP+PP+TP)
+ *              with hybrid data, pipeline, and expert parallelism (DP+PP+EP)
+ * 
+ * MODIFICATIONS FROM ORIGINAL:
+ * - Replaced Tensor Parallelism (TP) with Expert Parallelism (EP)
+ * - EP distributes experts across devices (Mixture-of-Experts models)
+ * - All-to-All communication instead of All-Reduce for expert routing
+ * - Token routing assumes uniform distribution across experts
  * 
  *********************************************************************/ 
 
@@ -72,10 +78,16 @@ constexpr Device device = Device::CPU;
 CCUTILS_MPI_TIMER_DEF(runtime)
 CCUTILS_MPI_TIMER_DEF(pp_comm)
 CCUTILS_MPI_TIMER_DEF(dp_comm)
-CCUTILS_MPI_TIMER_DEF(tp_comm)
+CCUTILS_MPI_TIMER_DEF(ep_comm) 
 
 /**
- * @brief Simulates one iteration of hybrid DP+PP+TP training using GPipe schedule.
+ * @brief Simulates one iteration of hybrid DP+PP+EP training using GPipe schedule.
+ * 
+ * EXPERT PARALLELISM EXPLANATION:
+ * - In MoE models, different experts process different tokens
+ * - Each device hosts a subset of experts
+ * - All-to-All communication routes tokens to appropriate expert devices
+ * - Assumption: tokens are evenly distributed among experts
  * 
  * @param num_microbatches Number of micro-batches (gradient accumulation steps)
  * @param stage_id Pipeline stage ID for this process
@@ -90,15 +102,16 @@ CCUTILS_MPI_TIMER_DEF(tp_comm)
  * @param fwd_recv_buff Forward activation receive buffer
  * @param bwd_send_buff Backward gradient send buffer
  * @param bwd_recv_buff Backward gradient receive buffer
- * @param tp_buffer Pointer to tensor parallel buffer
- * @param tp_result_buffer Pointer to tensor parallel result buffer
- * @param tp_allreduce_size Size of tensor parallel all-reduce (shard of one microbatch)
+ * @param ep_send_buffer Pointer to expert parallel send buffer (for token routing)
+ * @param ep_recv_buffer Pointer to expert parallel receive buffer (for token routing)
+ * @param ep_alltoall_size Size of expert parallel all-to-all per device
+ * @param num_experts Total number of experts in the model
  * @param dp_communicator Communicator for data-parallel all-reduce
  * @param pp_communicator Communicator for pipeline-parallel p2p
- * @param tp_communicator Communicator for tensor-parallel all-reduce
+ * @param ep_communicator Communicator for expert-parallel all-to-all
  * @return int Always returns 0
  */
-int run_data_pipe_tensor_parallel(
+int run_data_pipe_expert_parallel(
     int num_microbatches, 
     int stage_id, 
     int num_stage,
@@ -112,12 +125,13 @@ int run_data_pipe_tensor_parallel(
     Tensor<_FLOAT, device>* fwd_recv_buff,
     Tensor<_FLOAT, device>* bwd_send_buff,
     Tensor<_FLOAT, device>* bwd_recv_buff,
-    Tensor<_FLOAT, device>* tp_buffer,
-    Tensor<_FLOAT, device>* tp_result_buffer,
-    uint64_t tp_allreduce_size,
+    Tensor<_FLOAT, device>* ep_send_buffer,
+    Tensor<_FLOAT, device>* ep_recv_buffer,
+    uint64_t ep_alltoall_size,
+    int num_experts,
     ProxyCommunicator* dp_communicator,
     ProxyCommunicator* pp_communicator,
-    ProxyCommunicator* tp_communicator){
+    ProxyCommunicator* ep_communicator){
     
     // GPipe Pipeline Schedule
     // Forward pass for all micro-batches
@@ -141,12 +155,16 @@ int run_data_pipe_tensor_parallel(
         }
         CCUTILS_MPI_TIMER_STOP(pp_comm)
 
-        // Tensor parallel communication during forward pass
-        // 2 all-reduces per microbatch (column-parallel and row-parallel)
-        for(int tp_iter = 0; tp_iter < 2; tp_iter++){
-            CCUTILS_MPI_TIMER_START(tp_comm)
-            tp_communicator->Allreduce(tp_buffer->data, tp_result_buffer->data, tp_allreduce_size);
-            CCUTILS_MPI_TIMER_STOP(tp_comm)
+        // Expert parallel communication during forward pass
+        // In MoE layers: All-to-All to route tokens to experts
+        // Assuming MoE layers occur at regular intervals (e.g., every other layer)
+        // For simplicity, we do 2 all-to-all operations per microbatch:
+        // 1. Route tokens TO experts (before expert computation)
+        // 2. Route tokens FROM experts (after expert computation)
+        for(int ep_iter = 0; ep_iter < 2; ep_iter++){
+            CCUTILS_MPI_TIMER_START(ep_comm)
+            ep_communicator->Alltoall(ep_send_buffer->data, ep_alltoall_size, ep_recv_buffer->data, ep_alltoall_size);
+            CCUTILS_MPI_TIMER_STOP(ep_comm)
         }
     }
     
@@ -171,12 +189,12 @@ int run_data_pipe_tensor_parallel(
         }
         CCUTILS_MPI_TIMER_STOP(pp_comm)
         
-        // Tensor parallel communication during backward pass
-        // 2 all-reduces per microbatch
-        for(int tp_iter = 0; tp_iter < 2; tp_iter++){
-            CCUTILS_MPI_TIMER_START(tp_comm)
-            tp_communicator->Allreduce(tp_buffer->data, tp_result_buffer->data, tp_allreduce_size);
-            CCUTILS_MPI_TIMER_STOP(tp_comm)
+        // Expert parallel communication during backward pass
+        // All-to-All for gradient routing back through experts
+        for(int ep_iter = 0; ep_iter < 2; ep_iter++){
+            CCUTILS_MPI_TIMER_START(ep_comm)
+            ep_communicator->Alltoall(ep_send_buffer->data, ep_alltoall_size, ep_recv_buffer->data, ep_alltoall_size);
+            CCUTILS_MPI_TIMER_STOP(ep_comm)
         }
     }
     
@@ -192,17 +210,17 @@ int main(int argc, char* argv[]) {
     int rank, world_size;
     int num_stage;
     int num_microbatches;
-    int num_tensor_shards;
+    int num_expert_shards;  // Number of expert parallel groups
     
     if(argc < 5){
-        std::cout << "Usage: mpirun -n <world_size> ./hybrid_3d <model_name> <num_stages> <num_microbatches> <num_tensor_shards> <base_path>\n";
+        std::cout << "Usage: mpirun -n <world_size> ./hybrid_3d_moe <model_name> <num_stages> <num_microbatches> <num_expert_shards> <base_path>\n";
         return -1;
     }
     
     std::string model_name = argv[1];
     num_stage = std::stoi(argv[2]);
     num_microbatches = std::stoi(argv[3]);
-    num_tensor_shards = std::stoi(argv[4]);
+    num_expert_shards = std::stoi(argv[4]);
     
     // --- Construct model stats file path ---
     fs::path repo_path = get_dnnproxy_base_path(argc, argv, rank);
@@ -224,10 +242,17 @@ int main(int argc, char* argv[]) {
     uint64_t bwd_rt_whole_model = model_stats["avgBackwardTime"]; // in us
     uint local_batch_size = model_stats["batchSize"];
     uint64_t total_model_size = model_stats["modelSize"]; // number of parameters
-    uint sequence_length = model_stats["sequenceLength"]; // sequence length
-    uint embedded_dim = model_stats["embeddedDim"]; // hidden dimension size
+    uint64_t sequence_length = model_stats["sequenceLength"]; // sequence length
+    uint64_t hidden_dim = model_stats["embeddedDim"]; // hidden dimension size
 
-    uint64_t sample_size_bytes = sequence_length * embedded_dim * sizeof(_FLOAT);
+    float sample_size_bytes = sequence_length * hidden_dim * sizeof(_FLOAT);
+    
+    // Get number of experts from model stats
+    int num_experts = model_stats["Experts"];
+    if (num_experts <= 0) {
+        std::cerr << "Error: Invalid number of experts in model stats: " << num_experts << "\n";
+        return -1;
+    }
     
     assert(num_layers % num_stage == 0);
     assert(local_batch_size % num_microbatches == 0);
@@ -236,40 +261,41 @@ int main(int argc, char* argv[]) {
     MPI_Comm_size(MPI_COMM_WORLD, &world_size);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     
-    // Check that world_size = num_stages * num_tensor_shards * dp_size
-    assert(world_size % (num_stage * num_tensor_shards) == 0);
-    int dp_size = world_size / (num_stage * num_tensor_shards);
+    // Check that world_size = num_stages * num_expert_shards * dp_size
+    assert(world_size % (num_stage * num_expert_shards) == 0);
+    int dp_size = world_size / (num_stage * num_expert_shards);
     
     CCUTILS_MPI_INIT
     
-    // Create DP, PP, and TP communicators
-    // Hierarchy: world_size = num_stages * num_tensor_shards * dp_size
-    // Layout: [DP replicas] x [Pipeline stages] x [Tensor shards]
+    // Create DP, PP, and EP communicators
+    // Hierarchy: world_size = num_stages * num_expert_shards * dp_size
+    // Layout: [DP replicas] x [Pipeline stages] x [Expert shards]
     
     // Calculate position in 3D grid
-    int tp_id = rank % num_tensor_shards;
-    int stage_id = (rank / num_tensor_shards) % num_stage;
-    int dp_id = rank / (num_tensor_shards * num_stage);
+    int ep_id = rank % num_expert_shards;
+    int stage_id = (rank / num_expert_shards) % num_stage;
+    int dp_id = rank / (num_expert_shards * num_stage);
     
-    // Create TP communicator: groups GPUs with same (stage_id, dp_id)
-    int tp_color = dp_id * num_stage + stage_id;
-    MPI_Comm tp_comm;
-    MPI_Comm_split(MPI_COMM_WORLD, tp_color, rank, &tp_comm);
+    // Create EP communicator: groups GPUs with same (stage_id, dp_id)
+    // These devices work together to handle all experts
+    int ep_color = dp_id * num_stage + stage_id;
+    MPI_Comm ep_comm;
+    MPI_Comm_split(MPI_COMM_WORLD, ep_color, rank, &ep_comm);
     
-    // Create PP communicator: groups GPUs with same (dp_id, tp_id)
-    int pp_color = dp_id * num_tensor_shards + tp_id;
+    // Create PP communicator: groups GPUs with same (dp_id, ep_id)
+    int pp_color = dp_id * num_expert_shards + ep_id;
     MPI_Comm pp_comm;
     MPI_Comm_split(MPI_COMM_WORLD, pp_color, rank, &pp_comm);
     
-    // Create DP communicator: groups GPUs with same (stage_id, tp_id)
-    int dp_color = stage_id * num_tensor_shards + tp_id;
+    // Create DP communicator: groups GPUs with same (stage_id, ep_id)
+    int dp_color = stage_id * num_expert_shards + ep_id;
     MPI_Comm dp_comm;
     MPI_Comm_split(MPI_COMM_WORLD, dp_color, rank, &dp_comm);
     
-    int dp_rank, pp_rank, tp_rank;
+    int dp_rank, pp_rank, ep_rank;
     MPI_Comm_rank(dp_comm, &dp_rank);
     MPI_Comm_rank(pp_comm, &pp_rank);
-    MPI_Comm_rank(tp_comm, &tp_rank);
+    MPI_Comm_rank(ep_comm, &ep_rank);
     
     // Verify stage_id matches pp_rank
     assert(stage_id == pp_rank);
@@ -278,18 +304,25 @@ int main(int argc, char* argv[]) {
     uint64_t fwd_rt_per_stage = fwd_rt_whole_model / num_stage;
     uint64_t bwd_rt_per_stage = bwd_rt_whole_model / num_stage;
     
-    uint64_t fwd_rt_per_microbatch = fwd_rt_per_stage / (num_microbatches * num_tensor_shards);
-    uint64_t bwd_rt_per_microbatch = bwd_rt_per_stage / (num_microbatches * num_tensor_shards);
+    uint64_t fwd_rt_per_microbatch = fwd_rt_per_stage / num_microbatches;
+    uint64_t bwd_rt_per_microbatch = bwd_rt_per_stage / num_microbatches;
     
     // Pipeline message size: activations for batch_size/num_microbatches samples
     uint64_t samples_per_microbatch = local_batch_size / num_microbatches;
     uint64_t pipe_msg_size = (uint64_t)(sample_size_bytes * samples_per_microbatch / sizeof(_FLOAT));
     
-    // TP all-reduce size: one microbatch split across tensor shards
-    uint64_t tp_allreduce_size = pipe_msg_size / num_tensor_shards;
+    // EP all-to-all size calculation:
+    // Each device sends tokens to all other expert devices
+    // Assuming uniform distribution: total_tokens / num_expert_shards
+    // For one microbatch: (samples_per_microbatch * tokens_per_sample) tokens total
+    uint64_t tokens_per_microbatch = samples_per_microbatch * sequence_length;
+    // Each device sends to every other device (including self)
+    // Size per device pair: (tokens_per_microbatch / num_expert_shards) * hidden_dim
+    uint64_t ep_alltoall_size = (tokens_per_microbatch * hidden_dim) / (num_expert_shards * sizeof(_FLOAT));
     
-    // DP all-reduce size (gradients for parameters in this stage, divided by TP shards)
-    uint64_t dp_allreduce_size = total_model_size / (num_stage * num_tensor_shards);
+    // DP all-reduce size (gradients for parameters in this stage, divided by EP shards)
+    // In MoE, each expert shard has its own copy of expert parameters
+    uint64_t dp_allreduce_size = total_model_size / (num_stage * num_expert_shards);
     
 #if defined(PROXY_ENABLE_CUDA)
     int num_gpus;
@@ -326,18 +359,18 @@ int main(int argc, char* argv[]) {
     ncclCommInitRank(&pp_world_comm, pp_size, pp_id_nccl, pp_rank);
     CCLCommunicator* pp_communicator = new CCLCommunicator(pp_world_comm, 1);
     
-    // Initialize CCL for TP communicator
-    ncclUniqueId tp_id_nccl;
-    int tp_size;
-    MPI_Comm_size(tp_comm, &tp_size);
-    if (tp_rank == 0) {
-        ncclGetUniqueId(&tp_id_nccl);
+    // Initialize CCL for EP communicator
+    ncclUniqueId ep_id_nccl;
+    int ep_size;
+    MPI_Comm_size(ep_comm, &ep_size);
+    if (ep_rank == 0) {
+        ncclGetUniqueId(&ep_id_nccl);
     }
-    MPI_Bcast(&tp_id_nccl, sizeof(tp_id_nccl), MPI_BYTE, 0, tp_comm);
+    MPI_Bcast(&ep_id_nccl, sizeof(ep_id_nccl), MPI_BYTE, 0, ep_comm);
     
-    Proxy_CommType tp_world_comm;
-    ncclCommInitRank(&tp_world_comm, tp_size, tp_id_nccl, tp_rank);
-    CCLCommunicator* tp_communicator = new CCLCommunicator(tp_world_comm, 1);
+    Proxy_CommType ep_world_comm;
+    ncclCommInitRank(&ep_world_comm, ep_size, ep_id_nccl, ep_rank);
+    CCLCommunicator* ep_communicator = new CCLCommunicator(ep_world_comm, 1);
     
 #elif defined(PROXY_ENABLE_ONECCL)
     // Select GPU device
@@ -389,34 +422,34 @@ int main(int argc, char* argv[]) {
     auto pp_world_comm = ccl::create_communicator(pp_size, pp_rank, pp_kvs, pp_ctx);
     OneCCLCommunicator* pp_communicator = new OneCCLCommunicator(pp_world_comm, 1);
 
-    // TP communicator
-    int tp_size;
-    MPI_Comm_size(tp_comm, &tp_size);
+    // EP communicator
+    int ep_size;
+    MPI_Comm_size(ep_comm, &ep_size);
 
-    sycl::device tp_dev = gpus[tp_rank % num_gpus];
-    sycl::context tp_ctx(tp_dev);
-    sycl::queue tp_queue(tp_ctx, tp_dev);
+    sycl::device ep_dev = gpus[ep_rank % num_gpus];
+    sycl::context ep_ctx(ep_dev);
+    sycl::queue ep_queue(ep_ctx, ep_dev);
 
-    ccl::shared_ptr_class<ccl::kvs> tp_kvs;
-    if (tp_rank == 0) tp_kvs = ccl::create_main_kvs();
+    ccl::shared_ptr_class<ccl::kvs> ep_kvs;
+    if (ep_rank == 0) ep_kvs = ccl::create_main_kvs();
 
-    std::vector<char> tp_addr;
-    if (tp_rank == 0) tp_addr = tp_kvs->get_address();
+    std::vector<char> ep_addr;
+    if (ep_rank == 0) ep_addr = ep_kvs->get_address();
 
-    size_t tp_addr_size = tp_addr.size();
-    MPI_Bcast(&tp_addr_size, 1, MPI_UNSIGNED_LONG, 0, tp_comm);
-    if (tp_rank != 0) tp_addr.resize(tp_addr_size);
-    MPI_Bcast(tp_addr.data(), tp_addr_size, MPI_BYTE, 0, tp_comm);
+    size_t ep_addr_size = ep_addr.size();
+    MPI_Bcast(&ep_addr_size, 1, MPI_UNSIGNED_LONG, 0, ep_comm);
+    if (ep_rank != 0) ep_addr.resize(ep_addr_size);
+    MPI_Bcast(ep_addr.data(), ep_addr_size, MPI_BYTE, 0, ep_comm);
 
-    if (tp_rank != 0) tp_kvs = ccl::create_kvs(tp_addr);
+    if (ep_rank != 0) ep_kvs = ccl::create_kvs(ep_addr);
 
-    auto tp_world_comm = ccl::create_communicator(tp_size, tp_rank, tp_kvs, tp_ctx);
-    OneCCLCommunicator* tp_communicator = new OneCCLCommunicator(tp_world_comm, 1);
+    auto ep_world_comm = ccl::create_communicator(ep_size, ep_rank, ep_kvs, ep_ctx);
+    OneCCLCommunicator* ep_communicator = new OneCCLCommunicator(ep_world_comm, 1);
 
 #else
     MPICommunicator* dp_communicator = new MPICommunicator(dp_comm, MPI_FLOAT, 1);
     MPICommunicator* pp_communicator = new MPICommunicator(pp_comm, MPI_FLOAT, 1);
-    MPICommunicator* tp_communicator = new MPICommunicator(tp_comm, MPI_FLOAT, 1);
+    MPICommunicator* ep_communicator = new MPICommunicator(ep_comm, MPI_FLOAT, 1);
 #endif
     
     // Allocate buffers
@@ -428,31 +461,31 @@ int main(int argc, char* argv[]) {
     Tensor<_FLOAT, device>* bwd_send_buff = new Tensor<_FLOAT, device>(pipe_msg_size);
     Tensor<_FLOAT, device>* bwd_recv_buff = new Tensor<_FLOAT, device>(pipe_msg_size);
     
-    Tensor<_FLOAT, device>* tp_buffer = new Tensor<_FLOAT, device>(tp_allreduce_size);
-    Tensor<_FLOAT, device>* tp_result_buffer = new Tensor<_FLOAT, device>(tp_allreduce_size);
+    Tensor<_FLOAT, device>* ep_send_buffer = new Tensor<_FLOAT, device>(ep_alltoall_size);
+    Tensor<_FLOAT, device>* ep_recv_buffer = new Tensor<_FLOAT, device>(ep_alltoall_size);
     
     MPI_Barrier(MPI_COMM_WORLD);
     
     // Warmup
     std::vector<float> energy_vals;
     for(int wmp = 0; wmp < WARM_UP; wmp++){
-        run_data_pipe_tensor_parallel(num_microbatches, stage_id, num_stage, pipe_msg_size,
+        run_data_pipe_expert_parallel(num_microbatches, stage_id, num_stage, pipe_msg_size,
                               fwd_rt_per_microbatch, bwd_rt_per_microbatch,
                               grad_ptr, sum_grad_ptr, dp_allreduce_size,
                               fwd_send_buff, fwd_recv_buff, bwd_send_buff, bwd_recv_buff,
-                              tp_buffer, tp_result_buffer, tp_allreduce_size,
-                              dp_communicator, pp_communicator, tp_communicator);
+                              ep_send_buffer, ep_recv_buffer, ep_alltoall_size, num_experts,
+                              dp_communicator, pp_communicator, ep_communicator);
     }
     
     #ifdef PROXY_ENERGY_PROFILING
-    std::string sub_folder = model_name + "_dp_pp_tp_stages_" + std::to_string(num_stage) + 
-                            "_tp_" + std::to_string(num_tensor_shards) + "/";
+    std::string sub_folder = model_name + "_dp_pp_ep_stages_" + std::to_string(num_stage) + 
+                            "_ep_" + std::to_string(num_expert_shards) + "/";
     std::string base_folder_path = "logs_" + std::to_string(world_size) + "/";
     #endif
 
     for(int iter = 0; iter < RUNS; iter++){
         #ifdef PROXY_ENERGY_PROFILING
-        std::string power_file = base_folder_path + sub_folder + "power_dp_pp_tp_rank_" + 
+        std::string power_file = base_folder_path + sub_folder + "power_dp_pp_ep_rank_" + 
                                 std::to_string(rank) + "_run_" + std::to_string(iter) + ".csv";
         PowerProfiler powerProf(rank % num_gpus, POWER_SAMPLING_RATE_MS, power_file);
         #endif
@@ -461,12 +494,12 @@ int main(int argc, char* argv[]) {
         powerProf.start();
         #endif
         
-        run_data_pipe_tensor_parallel(num_microbatches, stage_id, num_stage, pipe_msg_size,
+        run_data_pipe_expert_parallel(num_microbatches, stage_id, num_stage, pipe_msg_size,
                               fwd_rt_per_microbatch, bwd_rt_per_microbatch,
                               grad_ptr, sum_grad_ptr, dp_allreduce_size,
                               fwd_send_buff, fwd_recv_buff, bwd_send_buff, bwd_recv_buff,
-                              tp_buffer, tp_result_buffer, tp_allreduce_size,
-                              dp_communicator, pp_communicator, tp_communicator);
+                              ep_send_buffer, ep_recv_buffer, ep_alltoall_size, num_experts,
+                              dp_communicator, pp_communicator, ep_communicator);
         
         #ifdef PROXY_ENERGY_PROFILING
         powerProf.stop();
@@ -480,48 +513,51 @@ int main(int argc, char* argv[]) {
     int namelen;
     MPI_Get_processor_name(host_name, &namelen);
     
-    CCUTILS_MPI_SECTION_DEF(dp_pp_tp, "Data + Pipeline + Tensor Parallelism")
+    CCUTILS_MPI_SECTION_DEF(dp_pp_ep, "Data + Pipeline + Expert Parallelism")
     
-    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "model_name", model_name)
-    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "num_stages", num_stage)
-    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "num_microbatches", num_microbatches)
-    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "num_tensor_shards", num_tensor_shards)
-    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "samples_per_microbatch", samples_per_microbatch)
-    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "local_batch_size", local_batch_size)
-    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "global_batch_size", dp_size * local_batch_size)
-    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "world_size", world_size)
-    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "dp_size", dp_size)
-    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "fwd_rt_per_microbatch", fwd_rt_per_microbatch)
-    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "bwd_rt_per_microbatch", bwd_rt_per_microbatch)
-    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "total_model_size_params", total_model_size)
-    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "pipe_msg_size_bytes", pipe_msg_size * sizeof(_FLOAT))
-    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "tp_allreduce_size_bytes", tp_allreduce_size * sizeof(_FLOAT))
-    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "dp_allreduce_size_bytes", dp_allreduce_size * sizeof(_FLOAT))
-    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "device", (device == Device::CPU) ? "CPU" : "GPU")
-    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "backend", dp_communicator->get_name())
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "model_name", model_name)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "num_stages", num_stage)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "num_microbatches", num_microbatches)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "num_expert_shards", num_expert_shards)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "num_experts", num_experts)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "sequence_length", sequence_length)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "hidden_dim", hidden_dim)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "samples_per_microbatch", samples_per_microbatch)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "local_batch_size", local_batch_size)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "global_batch_size", dp_size * local_batch_size)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "world_size", world_size)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "dp_size", dp_size)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "fwd_rt_per_microbatch", fwd_rt_per_microbatch)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "bwd_rt_per_microbatch", bwd_rt_per_microbatch)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "total_model_size_params", total_model_size)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "pipe_msg_size_bytes", pipe_msg_size * sizeof(_FLOAT))
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "ep_alltoall_size_bytes", ep_alltoall_size * sizeof(_FLOAT))
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "dp_allreduce_size_bytes", dp_allreduce_size * sizeof(_FLOAT))
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "device", (device == Device::CPU) ? "CPU" : "GPU")
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "backend", dp_communicator->get_name())
     
-    CCUTILS_SECTION_JSON_PUT(dp_pp_tp, "runtimes", __timer_vals_runtime);
+    CCUTILS_SECTION_JSON_PUT(dp_pp_ep, "runtimes", __timer_vals_runtime);
     
     __timer_vals_pp_comm.erase(__timer_vals_pp_comm.begin(), __timer_vals_pp_comm.begin() + WARM_UP);
     __timer_vals_dp_comm.erase(__timer_vals_dp_comm.begin(), __timer_vals_dp_comm.begin() + WARM_UP);
-    __timer_vals_tp_comm.erase(__timer_vals_tp_comm.begin(), __timer_vals_tp_comm.begin() + WARM_UP);
+    __timer_vals_ep_comm.erase(__timer_vals_ep_comm.begin(), __timer_vals_ep_comm.begin() + WARM_UP);
     
-    CCUTILS_SECTION_JSON_PUT(dp_pp_tp, "pp_comm_time", __timer_vals_pp_comm);
-    CCUTILS_SECTION_JSON_PUT(dp_pp_tp, "dp_comm_time", __timer_vals_dp_comm);
-    CCUTILS_SECTION_JSON_PUT(dp_pp_tp, "tp_comm_time", __timer_vals_tp_comm);
-    CCUTILS_SECTION_JSON_PUT(dp_pp_tp, "hostname", host_name);
-    CCUTILS_SECTION_JSON_PUT(dp_pp_tp, "stage_id", stage_id);
-    CCUTILS_SECTION_JSON_PUT(dp_pp_tp, "tp_id", tp_id);
-    CCUTILS_SECTION_JSON_PUT(dp_pp_tp, "dp_id", dp_id);
+    CCUTILS_SECTION_JSON_PUT(dp_pp_ep, "pp_comm_time", __timer_vals_pp_comm);
+    CCUTILS_SECTION_JSON_PUT(dp_pp_ep, "dp_comm_time", __timer_vals_dp_comm);
+    CCUTILS_SECTION_JSON_PUT(dp_pp_ep, "ep_comm_time", __timer_vals_ep_comm);
+    CCUTILS_SECTION_JSON_PUT(dp_pp_ep, "hostname", host_name);
+    CCUTILS_SECTION_JSON_PUT(dp_pp_ep, "stage_id", stage_id);
+    CCUTILS_SECTION_JSON_PUT(dp_pp_ep, "ep_id", ep_id);
+    CCUTILS_SECTION_JSON_PUT(dp_pp_ep, "dp_id", dp_id);
     #ifdef PROXY_ENERGY_PROFILING
-    CCUTILS_SECTION_JSON_PUT(dp_pp_tp, "energy_consumed", energy_vals);
+    CCUTILS_SECTION_JSON_PUT(dp_pp_ep, "energy_consumed", energy_vals);
     #endif
-    CCUTILS_MPI_SECTION_END(dp_pp_tp);
+    CCUTILS_MPI_SECTION_END(dp_pp_ep);
     
 #ifdef PROXY_ENABLE_CCL
     ncclCommDestroy(dp_world_comm);
     ncclCommDestroy(pp_world_comm);
-    ncclCommDestroy(tp_world_comm);
+    ncclCommDestroy(ep_world_comm);
 #endif
     
     MPI_Finalize();

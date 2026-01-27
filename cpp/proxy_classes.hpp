@@ -36,6 +36,8 @@ public:
     virtual void Allgather(const void* sendbuf, int sendcount,
                            void* recvbuf, int recvcount) = 0;
     virtual void Reduce_Scatter_block(const void* sendbuf, void* recvbuf, int recvcount) = 0;
+    virtual void Alltoall(const void* sendbuf, int sendcount,
+                            void* recvbuf, int recvcount) = 0;
     virtual void Barrier() = 0;
     virtual void WaitAll(int num_waits) = 0;
     virtual void Wait(int index) = 0;
@@ -67,6 +69,11 @@ public:
 
     void Allreduce(const void* sendbuf, void* recvbuf, int count) override {
         MPI_Allreduce(sendbuf, recvbuf, count, MPI_FLOAT, MPI_SUM, comm);
+    };
+
+    void Alltoall(const void* sendbuf, int sendcount,
+                    void* recvbuf, int recvcount) override {
+        MPI_Alltoall(sendbuf, sendcount, datatype, recvbuf, recvcount, datatype, comm);
     };
 
     void Barrier() override {
@@ -147,6 +154,12 @@ public:
     void Allreduce(const void* sendbuf, void* recvbuf, int count) override {
         ncclAllReduce(sendbuf, recvbuf, count, NCCL_FLOAT_TYPE, ncclSum,
                       comm, streams[0]);
+        Wait(0);
+    }
+
+    void Alltoall(const void* sendbuf, int sendcount,
+                    void* recvbuf, int recvcount) override {
+        ncclAllToAll(sendbuf, recvbuf, sendcount, NCCL_FLOAT_TYPE, comm, streams[0]);
         Wait(0);
     }
 
@@ -255,6 +268,16 @@ public:
     // Non-blocking allreduce
     void Iallreduce(const void* sendbuf, void* recvbuf, int count, int index) override {
         events.push_back(ccl::allreduce(sendbuf, recvbuf, count, ccl::reduction::sum, comm, streams[index]));
+    }
+
+    // Blocking allreduce
+    void Allreduce(const void* sendbuf, void* recvbuf, int count) override {
+        ccl::allreduce(sendbuf, recvbuf, count, ccl::reduction::sum, comm, streams[0]).wait();
+    }
+
+    void Alltoall(const void* sendbuf, int sendcount,
+                    void* recvbuf, int recvcount) override {
+        ccl::alltoall(sendbuf, recvbuf, sendcount, comm, streams[0]).wait();
     }
 
     void WaitAll(int num_waits) override {

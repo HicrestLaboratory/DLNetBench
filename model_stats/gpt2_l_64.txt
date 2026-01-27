@@ -7,5 +7,6 @@ Batch_size:64
 FFN_Average_Forward_Time (us):0
 FFN_Average_Backward_Time (us):0
 Experts:1
-Sample_Size:10
+Sample_Size:1024
+Embedded_dim: 1280
 Device:NVIDIA A100-SXM4-80GB

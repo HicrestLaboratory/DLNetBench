@@ -306,3 +306,5 @@ if __name__ == "__main__":
         out_file.write(f"FFN_Average_Backward_Time (us):{int(total_ffn_bwd_time)}\n")
         out_file.write(f"Experts:{args.experts}\n")
         out_file.write(f"Device:{device_name}\n")
+        out_file.write(f"Sample_Size:{seq_len}\n")
+        out_file.write(f"Embedded_dim:{embed_dim}\n")    
