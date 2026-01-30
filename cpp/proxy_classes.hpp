@@ -190,7 +190,6 @@ public:
         Wait(0);
     };
 
-#if defined(PROXY_ENABLE_NCCL) && (NCCL_VERSION_CODE >= NCCL_VERSION(2,7,0)) //ONLY NCCL >= 2.7 SUPPORTS P2P
     void send(const void* buf, int count, int peer) override {
         ncclSend(buf, count, NCCL_FLOAT_TYPE, peer, comm, streams[0]);
         Wait(0);
@@ -208,23 +207,6 @@ public:
     void Irecv(void* buf, int count, int peer, int index) override {
         ncclRecv(buf, count, NCCL_FLOAT_TYPE, peer, comm, streams[index]);
     }
-#else
-    void send(const void* buf, int count, int peer) override {
-        throw std::runtime_error("ncclSend requires NCCL >= 2.7");
-    }
-
-    void recv(void* buf, int count, int peer) override {
-        throw std::runtime_error("ncclRecv requires NCCL >= 2.7");
-    }
-
-    void Isend(const void* buf, int count, int peer, int index) override {
-        throw std::runtime_error("ncclSend requires NCCL >= 2.7");
-    }
-
-    void Irecv(void* buf, int count, int peer, int index) override {
-        throw std::runtime_error("ncclRecv requires NCCL >= 2.7");
-    }
-#endif
 
     void finalize() override {
         for(int i = 0; i < num_streams; i++) {

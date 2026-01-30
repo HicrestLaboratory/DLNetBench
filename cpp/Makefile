@@ -99,4 +99,4 @@ hybrid_3d_moe:
 	$(CXX) $(CXXFLAGS) $(MPI_LIBS) -o $(HYBRID_PATH)/hybrid_3d_moe $(HYBRID_PATH)/hybrid_3d_moe.cpp $(LDFLAGS)
 
 clean:
-	rm -f $(DP_PATH)/dp $(DP_PATH)/fsdp
+	rm -f $(DP_PATH)/dp $(DP_PATH)/fsdp $(HYBRID_PATH)/hybrid_2d $(HYBRID_PATH)/hybrid_3d $(HYBRID_PATH)/hybrid_3d_moe

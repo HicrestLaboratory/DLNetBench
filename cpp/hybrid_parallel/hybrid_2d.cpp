@@ -198,11 +198,8 @@ int main(int argc, char* argv[]) {
     uint64_t bwd_rt_whole_model = model_stats["avgBackwardTime"]; // in us
     uint local_batch_size = model_stats["batchSize"];
     uint64_t total_model_size = model_stats["modelSize"]; // number of parameters
-    float sample_size_bytes = (float)model_stats["sampleSize"]; // size of a single sample in bytes
-    
-    assert(num_layers % num_stage == 0);
-    assert(local_batch_size % num_microbatches == 0);
-    assert(world_size % num_stage == 0);
+    uint sequence_length = model_stats["sequenceLength"]; // sequence length
+    uint embedded_dim = model_stats["embeddedDim"]; // hidden dimension size
 
     // Compute per-stage and per-microbatch runtimes
     // fwd_rt_whole_model and bwd_rt_whole_model are already for the full batch_size
@@ -217,7 +214,7 @@ int main(int argc, char* argv[]) {
     // Pipeline message size: activations for batch_size/num_microbatches samples
     // Each microbatch processes (local_batch_size / num_microbatches) samples
     uint64_t samples_per_microbatch = local_batch_size / num_microbatches;
-    uint64_t pipe_msg_size = (uint64_t)(sample_size_bytes * samples_per_microbatch / sizeof(_FLOAT));
+    uint64_t pipe_msg_size = (uint64_t)(sequence_length * embedded_dim * samples_per_microbatch);
     
     // DP all-reduce size (gradients for parameters in this stage)
     uint64_t dp_allreduce_size = total_model_size / num_stage;
@@ -227,6 +224,9 @@ int main(int argc, char* argv[]) {
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     
     CCUTILS_MPI_INIT
+
+    assert(num_layers % num_stage == 0);
+    assert(local_batch_size % num_microbatches == 0);
     
     // Create DP and PP communicators
     assert(world_size % num_stage == 0);

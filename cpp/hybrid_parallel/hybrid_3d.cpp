@@ -283,7 +283,7 @@ int main(int argc, char* argv[]) {
     
     // Pipeline message size: activations for batch_size/num_microbatches samples
     uint64_t samples_per_microbatch = local_batch_size / num_microbatches;
-    uint64_t pipe_msg_size = (uint64_t)(sample_size_bytes * samples_per_microbatch / sizeof(_FLOAT));
+    uint64_t pipe_msg_size = (uint64_t)(sequence_length * embedded_dim * samples_per_microbatch);
     
     // TP all-reduce size: one microbatch split across tensor shards
     uint64_t tp_allreduce_size = pipe_msg_size / num_tensor_shards;
