@@ -1,13 +1,7 @@
 /********************************************************************* 
  * 
  * Description: C++/MPI proxy for Transformer-based models distributed training
- *              with hybrid data, pipeline, and expert parallelism (DP+PP+EP)
- * 
- * MODIFICATIONS FROM ORIGINAL:
- * - Replaced Tensor Parallelism (TP) with Expert Parallelism (EP)
- * - EP distributes experts across devices (Mixture-of-Experts models)
- * - All-to-All communication instead of All-Reduce for expert routing
- * - Token routing assumes uniform distribution across experts
+ *              with hybrid data, pipeline, and expert parallelism (DP+PP+EP) Assume 1 PP-stage 1 Transformer block
  * 
  *********************************************************************/ 
 
@@ -243,9 +237,9 @@ int main(int argc, char* argv[]) {
     uint local_batch_size = model_stats["batchSize"];
     uint64_t total_model_size = model_stats["modelSize"]; // number of parameters
     uint64_t sequence_length = model_stats["sequenceLength"]; // sequence length
-    uint64_t hidden_dim = model_stats["embeddedDim"]; // hidden dimension size
+    uint64_t embedded_dim = model_stats["embeddedDim"]; // hidden dimension size
 
-    float sample_size_bytes = sequence_length * hidden_dim * sizeof(_FLOAT);
+    float sample_size_bytes = sequence_length * embedded_dim * sizeof(_FLOAT);
     
     // Get number of experts from model stats
     int num_experts = model_stats["Experts"];
@@ -256,6 +250,7 @@ int main(int argc, char* argv[]) {
     
     assert(num_layers % num_stage == 0);
     assert(local_batch_size % num_microbatches == 0);
+    assert(num_experts % num_expert_shards == 0);
     
     MPI_Init(&argc, &argv);
     MPI_Comm_size(MPI_COMM_WORLD, &world_size);
@@ -309,7 +304,7 @@ int main(int argc, char* argv[]) {
     
     // Pipeline message size: activations for batch_size/num_microbatches samples
     uint64_t samples_per_microbatch = local_batch_size / num_microbatches;
-    uint64_t pipe_msg_size = (uint64_t)(sample_size_bytes * samples_per_microbatch / sizeof(_FLOAT));
+    uint64_t pipe_msg_size = (uint64_t)(sequence_length * samples_per_microbatch * embedded_dim);
     
     // EP all-to-all size calculation:
     // Each device sends tokens to all other expert devices
@@ -317,8 +312,8 @@ int main(int argc, char* argv[]) {
     // For one microbatch: (samples_per_microbatch * tokens_per_sample) tokens total
     uint64_t tokens_per_microbatch = samples_per_microbatch * sequence_length;
     // Each device sends to every other device (including self)
-    // Size per device pair: (tokens_per_microbatch / num_expert_shards) * hidden_dim
-    uint64_t ep_alltoall_size = (tokens_per_microbatch * hidden_dim) / (num_expert_shards * sizeof(_FLOAT));
+    // Size per device pair: (tokens_per_microbatch / num_expert_shards) * embedded_dim
+    uint64_t ep_alltoall_size = (tokens_per_microbatch * embedded_dim) / (num_expert_shards);
     
     // DP all-reduce size (gradients for parameters in this stage, divided by EP shards)
     // In MoE, each expert shard has its own copy of expert parameters
@@ -521,7 +516,7 @@ int main(int argc, char* argv[]) {
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "num_expert_shards", num_expert_shards)
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "num_experts", num_experts)
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "sequence_length", sequence_length)
-    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "hidden_dim", hidden_dim)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "embedded_dim", embedded_dim)
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "samples_per_microbatch", samples_per_microbatch)
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "local_batch_size", local_batch_size)
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "global_batch_size", dp_size * local_batch_size)
