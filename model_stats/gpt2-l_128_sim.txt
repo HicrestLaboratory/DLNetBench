@@ -1,0 +1,15 @@
+Forward_Flops:210281598812160
+Backward_Flops:420563197624320
+Model_Size:774030080
+Average_Forward_Time (us):10783671.73
+Average_Backward_Time (us):21567343.47
+Batch_size:128
+FFN_Average_Forward_Time (us):6343336.31
+FFN_Average_Backward_Time (us):12686672.63
+Experts:1
+Seq_len:1024
+Embedded_dim:1280
+Device:NVIDIA A100-SXM4-80GB
+Dtype:torch.float32
+Bytes_per_element:4
+TF32_Enabled:False

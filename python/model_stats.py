@@ -1,23 +1,9 @@
-#!/usr/bin/env python3
-"""
-*********************************************************************
-*
-* Python script to compute model size and forward/backward timing
-* of Hugging Face Transformer models using a single-layer proxy.
-* Backward is approximated as 2x forward.
-*
-*********************************************************************
-"""
-
 import argparse
 import os
-import platform
-import time
 import torch
 from transformers import (
     AutoModelForCausalLM, AutoConfig,
     ViTModel, ViTConfig,
-    GPT2LMHeadModel, GPT2Config
 )
 
 # Optional Mixtral
@@ -27,120 +13,169 @@ except ImportError:
     MixtralForCausalLM = None
     MixtralConfig = None
 
-# Detect device
-DEVICE_NAME = torch.cuda.get_device_name(torch.cuda.current_device()) if torch.cuda.is_available() else platform.processor()
+# ------------------------------
+# Hardware Specs (A100 80GB SXM4)
+# ------------------------------
+BASE_PEAK = {torch.float32: 19.5e12, torch.float16: 312e12, torch.bfloat16: 312e12}
+TF32_PEAK = {torch.float32: 156e12}  # Approx TF32 matmul peak
+BANDWIDTH = 2.0e12  # 2 TB/s
+DEVICE_NAME = "NVIDIA A100-SXM4-80GB"
 
 # ------------------------------
-# Fixed Model Configs
+# Models
 # ------------------------------
-MODEL_CONFIGS = {
-    "vit-b":  {"hf_name":"google/vit-base-patch16-224",      "model_class":ViTModel, "config_class":ViTConfig, "type":"encoder_only", "seq_len":197, "description":"ViT-Base: 86M params, 12 layers"},
-    "vit-l":  {"hf_name":"google/vit-large-patch16-224",     "model_class":ViTModel, "config_class":ViTConfig, "type":"encoder_only", "seq_len":197, "description":"ViT-Large: 304M params, 24 layers"},
-    "vit-h":  {"hf_name":"google/vit-huge-patch14-224-in21k","model_class":ViTModel, "config_class":ViTConfig, "type":"encoder_only", "seq_len":257, "description":"ViT-Huge: 632M params, 32 layers"},
-    "gpt2-large": {"hf_name":"gpt2-large", "model_class":GPT2LMHeadModel, "config_class":GPT2Config, "type":"decoder_only", "seq_len":1024, "description":"GPT2-Large: 774M params, 36 layers"},
-    "gpt2-xl":    {"hf_name":"gpt2-xl",    "model_class":GPT2LMHeadModel, "config_class":GPT2Config, "type":"decoder_only", "seq_len":1024, "description":"GPT2-XL: 1.5B params, 48 layers"},
-    "minerva-7b": {"hf_name":"sapienzanlp/Minerva-7B-instruct-v1.0", "model_class":AutoModelForCausalLM, "config_class":AutoConfig, "type":"decoder_only", "seq_len":2048, "description":"Minerva-7B: 7B params, 32 layers"},
-    "llama3-8b":  {"hf_name":"meta-llama/Meta-Llama-3-8B", "model_class":AutoModelForCausalLM, "config_class":AutoConfig, "type":"decoder_only", "seq_len":8192, "description":"LLaMA3-8B: 8B params, 32 layers"},
-    "llama3-70b": {"hf_name":"meta-llama/Meta-Llama-3-70B","model_class":AutoModelForCausalLM, "config_class":AutoConfig, "type":"decoder_only", "seq_len":8192, "description":"LLaMA3-70B: 70B params, 80 layers"},
-    "mixtral-8x7b":{"hf_name":"mistralai/Mixtral-8x7B-v0.1","model_class":MixtralForCausalLM if MixtralForCausalLM else AutoModelForCausalLM, "config_class":MixtralConfig if MixtralConfig else AutoConfig, "type":"decoder_only", "seq_len":32768, "description":"Mixtral-8x7B MoE: 47B params, 32 layers, 8 experts"}
+MODELS = {
+    # Public
+    "vit-b": ("google/vit-base-patch16-224", ViTModel, ViTConfig),
+    "vit-l": ("google/vit-large-patch16-224", ViTModel, ViTConfig),
+    "vit-h": ("google/vit-huge-patch14-224-in21k", ViTModel, ViTConfig),
+    "gpt2-l": ("gpt2-large", AutoModelForCausalLM, AutoConfig),
+    "gpt2-xl": ("gpt2-xl", AutoModelForCausalLM, AutoConfig),
+
+    # Public Minerva 7B
+    "minerva-7b": ("sapienzanlp/Minerva-7B-instruct-v1.0", AutoModelForCausalLM, AutoConfig),
+
+    # Gated
+    "llama3-8b": ("meta-llama/Meta-Llama-3-8B", AutoModelForCausalLM, AutoConfig),
+    "llama3-70b": ("meta-llama/Meta-Llama-3-70B", AutoModelForCausalLM, AutoConfig),
+    "mixtral-8x7b": ("mistralai/Mixtral-8x7B-v0.1",
+                      MixtralForCausalLM if MixtralForCausalLM else AutoModelForCausalLM,
+                      MixtralConfig if MixtralConfig else AutoConfig),
 }
 
 # ------------------------------
-# Helpers
+# Roofline helpers
 # ------------------------------
-def get_layer(model, model_type):
-    if model_type=="encoder_only":
-        if hasattr(model,"encoder") and hasattr(model.encoder,"layer"):
-            return model.encoder.layer[0]
-        elif hasattr(model,"layers"):
-            return model.layers[0]
+def roofline_time(flops, bytes_accessed, peak_flops, peak_bw):
+    """Calculate time using roofline model."""
+    ai = flops / bytes_accessed
+    return flops / min(peak_flops, ai * peak_bw)
+
+def tf32_enabled():
+    """Check if TF32 is enabled for CUDA operations."""
+    return torch.backends.cuda.matmul.allow_tf32 and torch.backends.cudnn.allow_tf32
+
+def bytes_per_element(dtype):
+    """Return bytes per element for given dtype."""
+    if dtype in [torch.float16, torch.bfloat16]:
+        return 2
+    elif dtype == torch.float32:
+        return 4
+    elif dtype == torch.float64:
+        return 8
     else:
-        if hasattr(model,"transformer") and hasattr(model.transformer,"h"):
-            return model.transformer.h[0]
-        elif hasattr(model,"model") and hasattr(model.model,"layers"):
-            return model.model.layers[0]
-    raise ValueError("Cannot find layer")
-
-def get_num_blocks(config):
-    return getattr(config,"num_hidden_layers", getattr(config,"n_layer", getattr(config,"num_layers",1)))
-
-def get_embed_dim(config):
-    return getattr(config,"hidden_size", getattr(config,"n_embd",0))
-
-def get_num_experts(config):
-    return getattr(config,"num_local_experts",1)
-
-def count_params(layer):
-    return sum(p.numel() for p in layer.parameters())
-
-def fwd_time(layer, seq_len, batch_size, embed_dim, model_type, device="cpu"):
-    x = torch.randn(batch_size, seq_len, embed_dim, device=device)
-    mask = torch.ones(batch_size, seq_len, device=device) if model_type=="decoder_only" else None
-    # Run in no_grad to avoid storing activations for backward
-    with torch.no_grad():
-        # Warmup
-        for _ in range(5):
-            _ = layer(x, attention_mask=mask) if mask is not None else layer(x)
-        # Timing
-        times=[]
-        for _ in range(20):
-            t0=time.perf_counter()
-            _ = layer(x, attention_mask=mask) if mask is not None else layer(x)
-            if device=="cuda": torch.cuda.synchronize()
-            t1=time.perf_counter()
-            times.append((t1-t0)*1e6)
-    return torch.tensor(times).median().item()
+        return 4
 
 # ------------------------------
 # Main
 # ------------------------------
-if __name__=="__main__":
-    parser=argparse.ArgumentParser(description="Compute model stats proxy")
-    parser.add_argument("model_name", choices=list(MODEL_CONFIGS.keys()))
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Theoretical Roofline Simulator")
+    parser.add_argument("model_name", choices=list(MODELS.keys()))
     parser.add_argument("--batch_size", type=int, default=1)
-    parser.add_argument("--device", choices=["cpu","cuda"], default="cpu")
-    args=parser.parse_args()
+    args = parser.parse_args()
 
-    cfg=MODEL_CONFIGS[args.model_name]
+    hf_name, model_class, config_class = MODELS[args.model_name]
+
+    # Load config
     print(f"Loading config for {args.model_name}...")
-    config = cfg["config_class"].from_pretrained(cfg["hf_name"], trust_remote_code=True)
-    num_blocks=get_num_blocks(config)
-    embed_dim=get_embed_dim(config)
-    experts=get_num_experts(config)
-    print(f"✓ Config loaded: {num_blocks} layers, {embed_dim}D, {experts} expert(s)")
+    config = config_class.from_pretrained(hf_name, trust_remote_code=True)
 
-    print("Loading model weights...")
-    model=cfg["model_class"].from_pretrained(cfg["hf_name"], trust_remote_code=True)
-    model.eval()
-    layer=get_layer(model, cfg["type"]).to(args.device)
+    # Architecture parameters
+    L = getattr(config, "num_hidden_layers", getattr(config, "n_layer", 12))
+    d = getattr(config, "hidden_size", getattr(config, "n_embd", 768))
+    H = getattr(config, "intermediate_size", 4 * d)
+    E = getattr(config, "num_local_experts", 1)
+    k = 2 if "mixtral" in args.model_name else 1
+    B = args.batch_size
 
-    print("Timing single layer (proxy)...")
-    fwd = fwd_time(layer, cfg["seq_len"], args.batch_size, embed_dim, cfg["type"], device=args.device)
-    bwd = 2*fwd  # approximate backward
+    # Determine sequence length
+    if hasattr(config, "seq_len"):
+        N = config.seq_len
+    elif hasattr(config, "n_positions"):
+        N = config.n_positions
+    elif hasattr(config, "max_position_embeddings"):
+        N = config.max_position_embeddings
+    elif hasattr(config, "image_size") and hasattr(config, "patch_size"):
+        N = (config.image_size // config.patch_size) ** 2 + 1
+    else:
+        N = 1024
 
-    total_params = count_params(layer)*num_blocks
-    total_fwd_time = fwd*num_blocks
-    total_bwd_time = bwd*num_blocks
+    # Precision and peak
+    # FIXED: Added "minerva" to the list of models that use bfloat16
+    dtype = torch.bfloat16 if any(x in args.model_name for x in ["llama", "mixtral", "minerva"]) else torch.float32
+    s = bytes_per_element(dtype)
+    peak_flops = BASE_PEAK[dtype]
+    if dtype == torch.float32 and tf32_enabled():
+        peak_flops = TF32_PEAK[torch.float32]
 
-    # ------------------------------
-    # Write stats like original
-    # ------------------------------
+    # FLOPs
+    attn_f = (8 * B * N * d**2 + 4 * B * N**2 * d) * L
+    mlp_f = (4 * B * N * d * H * k) * L
+    total_fwd_flops = attn_f + mlp_f
+
+    # Memory bytes
+    attn_b = (4*d**2*s + 2*B*N*d*s) * L
+    mlp_b  = (2*d*H*s*E + 2*B*N*d*s) * L
+
+    # Roofline timing
+    t_attn = roofline_time(attn_f, attn_b, peak_flops, BANDWIDTH)
+    t_mlp  = roofline_time(mlp_f, mlp_b, peak_flops, BANDWIDTH)
+    t_fwd  = t_attn + t_mlp
+    t_bwd  = 2 * t_fwd
+
+    # Model size
+    print(f"Loading model to count parameters...")
+    model = model_class.from_pretrained(hf_name, trust_remote_code=True)
+    model_size = sum(p.numel() for p in model.parameters())
+
+    # Output
     out_dir = os.path.expanduser("~/DNNProxy/model_stats")
     os.makedirs(out_dir, exist_ok=True)
-    out_path = os.path.join(out_dir, f"{args.model_name}_{args.batch_size}.txt")
-    with open(out_path,"w") as f:
-        f.write(f"Forward_Flops:0\n")
-        f.write(f"Backward_Flops:0\n")
-        f.write(f"Model_Size:{total_params}\n")
-        f.write(f"Average_Forward_Time (us):{int(total_fwd_time)}\n")
-        f.write(f"Average_Backward_Time (us):{int(total_bwd_time)}\n")
-        f.write(f"Batch_size:{args.batch_size}\n")
-        f.write(f"Experts:{experts}\n")
-        f.write(f"Sample_Size:{cfg['seq_len']}\n")
-        f.write(f"Embedded_dim:{embed_dim}\n")
+    out_file = os.path.join(out_dir, f"{args.model_name}_{B}_sim.txt")
+
+    with open(out_file, "w") as f:
+        f.write(f"Forward_Flops:{int(total_fwd_flops)}\n")
+        f.write(f"Backward_Flops:{int(2*total_fwd_flops)}\n")
+        f.write(f"Model_Size:{model_size}\n")
+        f.write(f"Average_Forward_Time (us):{t_fwd*1e6:.2f}\n")
+        f.write(f"Average_Backward_Time (us):{t_bwd*1e6:.2f}\n")
+        f.write(f"Batch_size:{B}\n")
+        f.write(f"FFN_Average_Forward_Time (us):{t_mlp*1e6:.2f}\n")
+        f.write(f"FFN_Average_Backward_Time (us):{2*t_mlp*1e6:.2f}\n")
+        f.write(f"Experts:{E}\n")
+        f.write(f"Seq_len:{N}\n")
+        f.write(f"Embedded_dim:{d}\n")
         f.write(f"Device:{DEVICE_NAME}\n")
+        f.write(f"Dtype:{dtype}\n")
+        f.write(f"Bytes_per_element:{s}\n")
+        f.write(f"TF32_Enabled:{tf32_enabled()}\n")
 
-    print(f"✓ Stats written to {out_path}")
-    print(f"Forward time (μs): {total_fwd_time:.2f}")
-    print(f"Backward time approx (μs): {total_bwd_time:.2f}")
-
+    # Console output
+    print(f"\n{'='*60}")
+    print(f"Model: {args.model_name}")
+    print(f"{'='*60}")
+    print(f"Architecture:")
+    print(f"  Layers (L): {L}")
+    print(f"  Hidden dim (d): {d}")
+    print(f"  FFN dim (H): {H}")
+    print(f"  Sequence length (N): {N}")
+    print(f"  Batch size (B): {B}")
+    print(f"  Experts (E): {E}")
+    print(f"  Top-k (k): {k}")
+    print(f"\nPrecision:")
+    print(f"  Dtype: {dtype}")
+    print(f"  Bytes per element: {s}")
+    print(f"  TF32 enabled: {tf32_enabled()}")
+    print(f"\nCompute:")
+    print(f"  Total parameters: {model_size:,}")
+    print(f"  Forward FLOPs: {total_fwd_flops:.2e}")
+    print(f"  Backward FLOPs: {2*total_fwd_flops:.2e}")
+    print(f"  Peak FLOPS: {peak_flops:.2e}")
+    print(f"\nTheoretical Times:")
+    print(f"  Forward: {t_fwd*1e6:.2f} us ({t_fwd*1e3:.2f} ms)")
+    print(f"  Backward: {t_bwd*1e6:.2f} us ({t_bwd*1e3:.2f} ms)")
+    print(f"  Attention forward: {t_attn*1e6:.2f} us")
+    print(f"  FFN forward: {t_mlp*1e6:.2f} us")
+    print(f"\n✓ Stats written to {out_file}")
+    print(f"{'='*60}\n")
