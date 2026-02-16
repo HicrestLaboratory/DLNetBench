@@ -30,30 +30,31 @@
 #define PROXY_ENABLE_CCL 1 
 #endif 
 
-// Determine the floating-point type
-#ifdef PROXY_HALF
-    // Half precision supported only on GPU
+#ifdef PROXY_BFLOAT16
+
     #if defined(PROXY_CUDA)
-        #include <cuda_fp16.h>
-        using _FLOAT = half;
+        #include <cuda_bf16.h>
+        using _FLOAT = __nv_bfloat16;
 
     #elif defined(PROXY_HIP)
-        #include <hip/hip_fp16.h>
-        using _FLOAT = half;
+        #include <hip/hip_bfloat16.h>
+        using _FLOAT = hip_bfloat16;
+
     #else
-        #error "HALF_PRECISION is defined but the target platform is not a supported GPU."
+        #error "BFLOAT16 is defined but the target platform does not support it."
     #endif
 
-    #ifdef PROXY_ENABLE_CCL
-        #define NCCL_FLOAT_TYPE ncclHalf
+    #ifdef PROXY_ENABLE_NCCL
+        #define NCCL_FLOAT_TYPE ncclBfloat16
     #endif
 
     #ifdef PROXY_ENABLE_ONECCL
-        using ONECCL_FLOAT_TYPE = sycl::half;
+        using ONECCL_FLOAT_TYPE = sycl::ext::oneapi::bfloat16;
     #endif
+
 #else
-    // Default to float precision
     using _FLOAT = float;
+
     #ifdef PROXY_ENABLE_NCCL
         #define NCCL_FLOAT_TYPE ncclFloat
     #endif
@@ -61,6 +62,7 @@
     #ifdef PROXY_ENABLE_ONECCL
         using ONECCL_FLOAT_TYPE = float;
     #endif
+
 #endif
 
 // Communicator type
