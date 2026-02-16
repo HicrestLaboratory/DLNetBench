@@ -13,7 +13,7 @@
     #include <hip/hip_runtime.h>
 #endif
 
-#ifdef PROXY_ENABLE_NCLL
+#ifdef PROXY_ENABLE_NCCL
     #include <nccl.h>
 #endif
 
@@ -159,7 +159,25 @@ public:
 
     void Alltoall(const void* sendbuf, int sendcount,
                     void* recvbuf, int recvcount) override {
-        ncclAllToAll(sendbuf, recvbuf, sendcount, NCCL_FLOAT_TYPE, comm, streams[0]);
+        
+        // 1. Begin the Group: Batches all operations into a single kernel launch
+        ncclGroupStart();
+
+        // 2. Iterate over all ranks to post Send/Recv
+        for (int r = 0; r < comm_size; r++) {
+            // Calculate offsets: Move pointer by (rank * count) elements
+            const float* send_ptr = static_cast<const float*>(sendbuf) + (r * sendcount);
+            float* recv_ptr = static_cast<float*>(recvbuf) + (r * recvcount);
+
+            // Standard NCCL Send/Recv calls
+            ncclSend(send_ptr, sendcount, NCCL_FLOAT_TYPE, r, comm, streams[0]);
+            ncclRecv(recv_ptr, recvcount, NCCL_FLOAT_TYPE, r, comm, streams[0]);
+        }
+
+        // 3. End the Group: Submits the optimized AllToAll pattern to the GPU
+        ncclGroupEnd();
+        
+        // 4. Synchronize
         Wait(0);
     }
 
@@ -388,9 +406,9 @@ public:
                 free(data);
             }
             else if constexpr (device == Device::GPU) {
-    #if defined(PROXY_CUDA)
+    #if defined(PROXY_ENABLE_CUDA)
                 CCUTILS_CUDA_FREE_SAFE(data);
-    #elif defined(PROXY_HIP)
+    #elif defined(PROXY_ENABLE_HIP)
                 CCUTILS_HIP_FREE_SAFE(data);
     #elif defined(PROXY_ENABLE_ONECCL)
                 sycl::queue q(sycl::gpu_selector_v); // temporary queue
