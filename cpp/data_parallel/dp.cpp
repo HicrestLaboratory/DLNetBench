@@ -235,6 +235,13 @@ int main(int argc, char* argv[]) {
     sub_folder += "_nccl_algo_" + algo + "_proto_" + proto + "_ctas_" + channels + "_threads_" + threads + "/";
     #endif
     std::string base_folder_path = "logs_" + std::to_string(world_size) + "/";
+
+    #ifdef PROXY_LOOP
+    while(true){
+        run_data_parallel(grad_ptrs, sum_grad_ptrs, num_buckets, params_per_bucket,
+                         fwd_rt_whole_model, bwd_rt_per_B, communicator);
+    }
+    #else
     for(int iter = 0; iter < RUNS; iter++){
         #ifdef PROXY_ENERGY_PROFILING
         std::string power_file = base_folder_path + sub_folder + "power_dp_rank_" + std::to_string(rank) + "run_" + std::to_string(iter) + ".csv";
@@ -285,6 +292,7 @@ int main(int argc, char* argv[]) {
     __timer_vals_barrier.erase(__timer_vals_barrier.begin(), __timer_vals_barrier.begin() + WARM_UP); // remove the warm-up barriers
     CCUTILS_SECTION_JSON_PUT(dp, "barrier_time", __timer_vals_barrier);
     CCUTILS_SECTION_JSON_PUT(dp, "hostname", host_name);
+    #endif
 
     #ifdef PROXY_ENERGY_PROFILING
     CCUTILS_SECTION_JSON_PUT(dp, "energy_consumed", energy_vals);

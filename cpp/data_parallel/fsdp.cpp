@@ -9,8 +9,6 @@
  * 
  *********************************************************************/
 
-//TODO: add oneCCL support
-
 #include <mpi.h>
 #include <unistd.h>
 #include <stdio.h>
@@ -339,6 +337,14 @@ int main(int argc, char* argv[]) {
                  num_replicas, unit_comm_proxy, allreduce_comm_proxy);
 
     
+    #ifdef PROXY_LOOP
+    while(true){
+        run_fsdp(shard_params, allgather_buf, allreduce_params,
+                 fwd_rt_whole_unit, bwd_rt_whole_unit,
+                 num_units, sharding_factor, max_params_per_shard,
+                 num_replicas, unit_comm_proxy, allreduce_comm_proxy);
+    }
+    #else
     // std::vector<float> energy_vals;
     for(int i = 0; i < RUNS; i++){ //TODO: add energy profiling
         CCUTILS_MPI_TIMER_START(runtime);
@@ -403,6 +409,7 @@ int main(int argc, char* argv[]) {
         CCUTILS_MPI_GLOBAL_JSON_PUT(fsdp, "allreduce_msg_size_bytes", allreduce_msg_size)
 
     CCUTILS_MPI_SECTION_END(fsdp)
+    #endif
 
     #ifdef PROXY_ENABLE_CLL
     ncclCommDestroy(world_comm);

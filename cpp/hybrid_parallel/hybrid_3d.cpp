@@ -450,6 +450,16 @@ int main(int argc, char* argv[]) {
     std::string base_folder_path = "logs_" + std::to_string(world_size) + "/";
     #endif
 
+    #ifdef PROXY_LOOP
+    while(true){
+        run_data_pipe_tensor_parallel(num_microbatches, stage_id, num_stage, pipe_msg_size,
+                            fwd_rt_per_microbatch, bwd_rt_per_microbatch,
+                            grad_ptr, sum_grad_ptr, dp_allreduce_size,
+                            fwd_send_buff, fwd_recv_buff, bwd_send_buff, bwd_recv_buff,
+                            tp_buffer, tp_result_buffer, tp_allreduce_size,
+                            dp_communicator, pp_communicator, tp_communicator);
+    }
+    #else
     for(int iter = 0; iter < RUNS; iter++){
         #ifdef PROXY_ENERGY_PROFILING
         std::string power_file = base_folder_path + sub_folder + "power_dp_pp_tp_rank_" + 
@@ -517,6 +527,7 @@ int main(int argc, char* argv[]) {
     CCUTILS_SECTION_JSON_PUT(dp_pp_tp, "energy_consumed", energy_vals);
     #endif
     CCUTILS_MPI_SECTION_END(dp_pp_tp);
+    #endif
     
 #ifdef PROXY_ENABLE_CCL
     ncclCommDestroy(dp_world_comm);
