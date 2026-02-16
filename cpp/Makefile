@@ -98,5 +98,21 @@ hybrid_3d:
 hybrid_3d_moe:
 	$(CXX) $(CXXFLAGS) $(MPI_LIBS) -o $(HYBRID_PATH)/hybrid_3d_moe $(HYBRID_PATH)/hybrid_3d_moe.cpp $(LDFLAGS)
 
+#Loop versions
+dp_loop:
+	$(CXX) $(CXXFLAGS) $(MPI_LIBS) -DPROXY_LOOP -o $(DP_PATH)/dp_loop $(DP_PATH)/dp_loop.cpp $(LDFLAGS)
+
+fsdp_loop:
+	$(CXX) $(CXXFLAGS) $(MPI_LIBS) -DPROXY_LOOP -o $(DP_PATH)/fsdp_loop $(DP_PATH)/fsdp_loop.cpp $(LDFLAGS)
+
+hybrid_2d_loop:
+	$(CXX) $(CXXFLAGS) $(MPI_LIBS) -DPROXY_LOOP -o $(HYBRID_PATH)/hybrid_2d_loop $(HYBRID_PATH)/hybrid_2d_loop.cpp $(LDFLAGS)
+
+hybrid_3d_loop:
+	$(CXX) $(CXXFLAGS) $(MPI_LIBS) -DPROXY_LOOP -o $(HYBRID_PATH)/hybrid_3d_loop $(HYBRID_PATH)/hybrid_3d_loop.cpp $(LDFLAGS)
+
+hybrid_3d_moe_loop:
+	$(CXX) $(CXXFLAGS) $(MPI_LIBS) -DPROXY_LOOP -o $(HYBRID_PATH)/hybrid_3d_moe_loop $(HYBRID_PATH)/hybrid_3d_moe_loop.cpp $(LDFLAGS)
+
 clean:
-	rm -f $(DP_PATH)/dp $(DP_PATH)/fsdp $(HYBRID_PATH)/hybrid_2d $(HYBRID_PATH)/hybrid_3d $(HYBRID_PATH)/hybrid_3d_moe
+	rm -f $(DP_PATH)/dp $(DP_PATH)/fsdp $(HYBRID_PATH)/hybrid_2d $(HYBRID_PATH)/hybrid_3d $(HYBRID_PATH)/hybrid_3d_moe $(DP_PATH)/dp_loop $(DP_PATH)/fsdp_loop $(HYBRID_PATH)/hybrid_2d_loop $(HYBRID_PATH)/hybrid_3d_loop $(HYBRID_PATH)/hybrid_3d_moe_loop

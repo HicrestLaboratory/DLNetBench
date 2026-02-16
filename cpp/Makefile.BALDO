@@ -54,7 +54,33 @@ dp:
 fsdp:
 	$(CXX) $(CXXFLAGS) -o $(DP_PATH)/fsdp $(DP_PATH)/fsdp.cpp $(LDFLAGS) $(LDLIBS)
 
+hybrid_2d:
+	$(CXX) $(CXXFLAGS) -o $(HYBRID_PATH)/hybrid_2d $(HYBRID_PATH)/hybrid_2d.cpp $(LDFLAGS)
+
+hybrid_3d:
+	$(CXX) $(CXXFLAGS) -o $(HYBRID_PATH)/hybrid_3d $(HYBRID_PATH)/hybrid_3d.cpp $(LDFLAGS)
+
+hybrid_3d_moe:
+	$(CXX) $(CXXFLAGS) -o $(HYBRID_PATH)/hybrid_3d_moe $(HYBRID_PATH)/hybrid_3d_moe.cpp $(LDFLAGS)
+
+
+# LOOP versions
+dp_loop:
+    $(CXX) $(CXXFLAGS) -DPROXY_LOOP -o $(DP_PATH)/dp_loop $(DP_PATH)/dp_loop.cpp $(LDFLAGS) $(LDLIBS)
+
+fsdp_loop:
+    $(CXX) $(CXXFLAGS) -DPROXY_LOOP -o $(DP_PATH)/fsdp_loop $(DP_PATH)/fsdp_loop.cpp $(LDFLAGS) $(LDLIBS)
+
+hybrid_2d_loop:
+    $(CXX) $(CXXFLAGS) -DPROXY_LOOP -o $(HYBRID_PATH)/hybrid_2d_loop $(HYBRID_PATH)/hybrid_2d_loop.cpp $(LDFLAGS) $(LDLIBS)
+
+hybrid_3d_loop:
+    $(CXX) $(CXXFLAGS) -DPROXY_LOOP -o $(HYBRID_PATH)/hybrid_3d_loop $(HYBRID_PATH)/hybrid_3d_loop.cpp $(LDFLAGS) $(LDLIBS)
+
+hybrid_3d_moe_loop:
+    $(CXX) $(CXXFLAGS) -DPROXY_LOOP -o $(HYBRID_PATH)/hybrid_3d_moe_loop $(HYBRID_PATH)/hybrid_3d_moe_loop.cpp $(LDFLAGS) $(LDLIBS)
+
 clean:
-	rm -f $(DP_PATH)/dp $(DP_PATH)/fsdp
+	rm -f $(DP_PATH)/dp $(DP_PATH)/fsdp $(HYBRID_PATH)/hybrid_2d $(HYBRID_PATH)/hybrid_3d $(HYBRID_PATH)/hybrid_3d_moe $(DP_PATH)/dp_loop $(DP_PATH)/fsdp_loop $(HYBRID_PATH)/hybrid_2d_loop $(HYBRID_PATH)/hybrid_3d_loop $(HYBRID_PATH)/hybrid_3d_moe_loop
 
 .PHONY: all clean
