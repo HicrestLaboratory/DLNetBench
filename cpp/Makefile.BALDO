@@ -1,0 +1,60 @@
+# -------------------------
+# Makefile.BALDO
+# Adapted for Cluster Baldo (NVIDIA HPC SDK environment)
+# -------------------------
+
+# --- 1. Compiler Selection ---
+# Using mpicxx as demonstrated in your working snippet. 
+# This handles MPI headers and linking automatically.
+CXX := mpicxx
+
+# --- 2. Baldo Cluster Paths (NVHPC) ---
+# Root path extracted from your snippet
+NVHPC_ROOT := /opt/shares/NVHPC/nvhpc_24.7_cuda_12.5/Linux_x86_64/24.7
+
+# Specific Include/Lib paths
+NCCL_HOME := $(NVHPC_ROOT)/comm_libs/nccl
+CUDA_HOME := $(NVHPC_ROOT)/cuda
+
+# Application specific paths (Preserved from original)
+DP_PATH := ./data_parallel
+ENERGY_PROFILER_HOME ?= $(HOME)/.local
+CCUTILS_INCLUDE ?= $(HOME)/.local/ccutils/install/include
+
+# --- 3. Compiler Flags ---
+# Note: mpicxx implies -DWITH_MPI. 
+# Added -pthread to ensure standard thread support.
+CXXFLAGS := -O3 -std=c++17 \
+            -I$(NCCL_HOME)/include \
+            -I$(CUDA_HOME)/include \
+            -I$(ENERGY_PROFILER_HOME)/include \
+            -I$(CCUTILS_INCLUDE) \
+            -DPROXY_ENABLE_CUDA -DPROXY_ENABLE_NCCL \
+            -DWITH_MPI -DNVML -DCCUTILS_ENABLE_CUDA -DCCUTILS_ENABLE_MPI
+
+# --- 4. Linker Flags ---
+LDFLAGS := -L$(NCCL_HOME)/lib \
+           -L$(CUDA_HOME)/lib64 \
+
+# --- 5. Libraries ---
+# -lmpi is usually automatic with mpicxx, but we link dependent libs here.
+# Added -lnccl -lcudart as per your snippet.
+LDLIBS := -lnccl -lcudart -lpthread -ldl
+
+# -------------------------
+# Targets
+# -------------------------
+all: data_parallel
+
+data_parallel: dp fsdp
+
+dp:
+	$(CXX) $(CXXFLAGS) -o $(DP_PATH)/dp $(DP_PATH)/dp.cpp $(LDFLAGS) $(LDLIBS)
+
+fsdp:
+	$(CXX) $(CXXFLAGS) -o $(DP_PATH)/fsdp $(DP_PATH)/fsdp.cpp $(LDFLAGS) $(LDLIBS)
+
+clean:
+	rm -f $(DP_PATH)/dp $(DP_PATH)/fsdp
+
+.PHONY: all clean
