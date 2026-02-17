@@ -29,10 +29,6 @@ using nlohmann::json;
 #include <ccutils/cuda/cuda_macros.hpp>
 #endif
 
-#ifdef PROXY_ENABLE_HIP
-#include <ccutils/hip/hip_macros.hpp>
-#endif
-
 #ifdef PROXY_ENERGY_PROFILING
 #include <profiler/power_profiler.hpp>
 #endif

@@ -1,0 +1,88 @@
+# -------------------------
+# Makefile.LUMI
+# Optimized for LUMI-G (AMD MI250X / ROCm 6.3.4)
+# -------------------------
+
+# --- 1. Compiler Selection ---
+# On LUMI, 'CC' is the Cray wrapper for C++. 
+# It automatically links MPI (cray-mpich) and handles HIP source files.
+CXX := CC
+
+# --- 2. LUMI Paths (ROCm / RCCL) ---
+# ROCM_PATH is automatically set by the 'rocm' module on LUMI
+ROCM_HOME := $(or $(ROCM_PATH),$(EBROOTROCM),/opt/rocm-6.3.4)
+RCCL_HOME := $(ROCM_HOME)
+
+# Application specific paths (mirrored from your Baldo setup)
+DP_PATH := ./data_parallel
+HYBRID_PATH := ./hybrid_parallel
+ENERGY_PROFILER_HOME ?= $(HOME)/.local
+CCUTILS_INCLUDE ?= $(HOME)/.local/ccutils/install/include
+
+# --- 3. Compiler Flags ---
+# -x hip: Tells the Cray compiler to treat .cpp files as HIP source code.
+# --offload-arch=gfx90a: Specific architecture for LUMI-G's MI250X.
+CXXFLAGS := -O3 -std=c++17 -x hip \
+            --offload-arch=gfx90a \
+            -I$(RCCL_HOME)/include \
+	    -I$(RCCL_HOME)/include/rccl \
+            -I$(CCUTILS_INCLUDE) \
+            -DPROXY_ENABLE_HIP -DPROXY_ENABLE_RCCL \
+            -DWITH_MPI -DCCUTILS_ENABLE_HIP -DCCUTILS_ENABLE_MPI
+
+# --- 4. Linker Flags ---
+LDFLAGS := -L$(RCCL_HOME)/lib
+
+# --- 5. Libraries ---
+# Link against 'rccl' instead of 'nccl'. 
+# MPI and HIP runtimes are handled automatically by the 'CC' wrapper.
+LDLIBS := -lrccl -lpthread -ldl
+
+# -------------------------
+# Targets
+# -------------------------
+all: data_parallel hybrid
+
+data_parallel: dp fsdp
+
+dp:
+	$(CXX) $(CXXFLAGS) -o $(DP_PATH)/dp $(DP_PATH)/dp.cpp $(LDFLAGS) $(LDLIBS)
+
+fsdp:
+	$(CXX) $(CXXFLAGS) -o $(DP_PATH)/fsdp $(DP_PATH)/fsdp.cpp $(LDFLAGS) $(LDLIBS)
+
+# --- Hybrid Targets ---
+hybrid: hybrid_2d hybrid_3d hybrid_3d_moe
+
+hybrid_2d:
+	$(CXX) $(CXXFLAGS) -o $(HYBRID_PATH)/hybrid_2d $(HYBRID_PATH)/hybrid_2d.cpp $(LDFLAGS) $(LDLIBS)
+
+hybrid_3d:
+	$(CXX) $(CXXFLAGS) -o $(HYBRID_PATH)/hybrid_3d $(HYBRID_PATH)/hybrid_3d.cpp $(LDFLAGS) $(LDLIBS)
+
+hybrid_3d_moe:
+	$(CXX) $(CXXFLAGS) -o $(HYBRID_PATH)/hybrid_3d_moe $(HYBRID_PATH)/hybrid_3d_moe.cpp $(LDFLAGS) $(LDLIBS)
+
+# --- LOOP versions (Using the -DPROXY_LOOP flag) ---
+loop: dp_loop fsdp_loop hybrid_2d_loop hybrid_3d_loop hybrid_3d_moe_loop
+
+dp_loop:
+	$(CXX) $(CXXFLAGS) -DPROXY_LOOP -o $(DP_PATH)/dp_loop $(DP_PATH)/dp_loop.cpp $(LDFLAGS) $(LDLIBS)
+
+fsdp_loop:
+	$(CXX) $(CXXFLAGS) -DPROXY_LOOP -o $(DP_PATH)/fsdp_loop $(DP_PATH)/fsdp_loop.cpp $(LDFLAGS) $(LDLIBS)
+
+hybrid_2d_loop:
+	$(CXX) $(CXXFLAGS) -DPROXY_LOOP -o $(HYBRID_PATH)/hybrid_2d_loop $(HYBRID_PATH)/hybrid_2d_loop.cpp $(LDFLAGS) $(LDLIBS)
+
+hybrid_3d_loop:
+	$(CXX) $(CXXFLAGS) -DPROXY_LOOP -o $(HYBRID_PATH)/hybrid_3d_loop $(HYBRID_PATH)/hybrid_3d_loop.cpp $(LDFLAGS) $(LDLIBS)
+
+hybrid_3d_moe_loop:
+	$(CXX) $(CXXFLAGS) -DPROXY_LOOP -o $(HYBRID_PATH)/hybrid_3d_moe_loop $(HYBRID_PATH)/hybrid_3d_moe_loop.cpp $(LDFLAGS) $(LDLIBS)
+
+clean:
+	rm -f $(DP_PATH)/dp $(DP_PATH)/fsdp $(HYBRID_PATH)/hybrid_2d $(HYBRID_PATH)/hybrid_3d $(HYBRID_PATH)/hybrid_3d_moe
+	rm -f $(DP_PATH)/dp_loop $(DP_PATH)/fsdp_loop $(HYBRID_PATH)/hybrid_2d_loop $(HYBRID_PATH)/hybrid_3d_loop $(HYBRID_PATH)/hybrid_3d_moe_loop
+
+.PHONY: all clean data_parallel hybrid loop

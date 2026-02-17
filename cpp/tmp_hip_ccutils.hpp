@@ -3,10 +3,10 @@
 
 #include <hip/hip_runtime.h> // HIP
 
-#define CCUTILS_HIP_FREE_SAFE(data)
+#define CCUTILS_HIP_FREE_SAFE(data)         \
     do {                                    \
-      if (data != nullptr) hipFree(data);   \
-    } while (0);
+      if ((data) != nullptr) hipFree(data); \
+    } while (0)
 
 
 #define CCUTILS_HIP_CHECK(call) {                                               \

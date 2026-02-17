@@ -55,7 +55,7 @@
 #else
     using _FLOAT = float;
 
-    #ifdef PROXY_ENABLE_NCCL
+    #ifdef PROXY_ENABLE_CCL
         #define NCCL_FLOAT_TYPE ncclFloat
     #endif
 
