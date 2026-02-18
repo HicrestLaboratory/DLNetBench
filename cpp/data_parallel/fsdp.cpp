@@ -22,6 +22,8 @@ namespace fs = std::filesystem;
 #include <ccutils/mpi/mpi_timers.hpp>
 #include <ccutils/mpi/mpi_macros.hpp>
 
+#include "netcommunicators.hpp"
+
 #ifdef PROXY_ENERGY_PROFILING
 #include <profiler/power_profiler.hpp>
 #endif
@@ -198,6 +200,20 @@ int main(int argc, char* argv[]) {
         CCUTILS_MPI_PRINT_ONCE(std::cerr << "Error: model stats file does not exist: " << file_path << "\n")
         MPI_Finalize();
         return -1;
+    }
+
+    ProcessEnv my_env;
+    my_env.init_processenv();
+
+    MpiNetworkComms my_net_comm(my_env);
+
+    if (rank == 0) {
+        printf("\n=== Network Topology Graph ===\n");
+        
+        // This is the function you asked about:
+        my_net_comm.graph.netPrint(stdout); 
+        
+        printf("\n==============================\n");
     }
 
     std::map<std::string, uint64_t> model_stats = get_model_stats(file_path.string()); // get model stats from file
