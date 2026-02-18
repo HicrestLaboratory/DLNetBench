@@ -1,0 +1,72 @@
+WITH_MPI ?= 1
+
+# Base Compiler Settings
+CXX := mpicxx
+CXXFLAGS := -O3 -std=c++17
+LDFLAGS :=
+
+# Check for mandatory ccutils dependency
+ifndef CCUTILS_INCLUDE
+$(warning CCUTILS_INCLUDE is not set!)
+$(warning Please set CCUTILS_INCLUDE to the include directory of ccutils)
+$(error Example: install by running the provided install.sh)
+endif
+
+CXXFLAGS += -I$(CCUTILS_INCLUDE)
+
+# MPI Configuration
+ifeq ($(WITH_MPI),1)
+    MPI_CFLAGS := $(shell mpicxx --showme:compile)
+    MPI_LIBS   := $(shell mpicxx --showme:link)
+    CXXFLAGS += $(MPI_CFLAGS) -DWITH_MPI -DCCUTILS_ENABLE_MPI
+endif
+
+# Paths
+DP_PATH = ./data_parallel
+HYBRID_PATH = ./hybrid_parallel
+
+# --- Build Targets ---
+
+all: data_parallel hybrid
+
+data_parallel: dp fsdp
+
+hybrid: hybrid_2d hybrid_3d hybrid_3d_moe
+
+dp:
+	$(CXX) $(CXXFLAGS) $(MPI_LIBS) -o $(DP_PATH)/dp $(DP_PATH)/dp.cpp $(LDFLAGS)
+
+fsdp:
+	$(CXX) $(CXXFLAGS) $(MPI_LIBS) -o $(DP_PATH)/fsdp $(DP_PATH)/fsdp.cpp $(LDFLAGS)
+
+hybrid_2d:
+	$(CXX) $(CXXFLAGS) $(MPI_LIBS) -o $(HYBRID_PATH)/hybrid_2d $(HYBRID_PATH)/hybrid_2d.cpp $(LDFLAGS)
+
+hybrid_3d:
+	$(CXX) $(CXXFLAGS) $(MPI_LIBS) -o $(HYBRID_PATH)/hybrid_3d $(HYBRID_PATH)/hybrid_3d.cpp $(LDFLAGS)
+
+hybrid_3d_moe:
+	$(CXX) $(CXXFLAGS) $(MPI_LIBS) -o $(HYBRID_PATH)/hybrid_3d_moe $(HYBRID_PATH)/hybrid_3d_moe.cpp $(LDFLAGS)
+
+# --- Loop Versions ---
+
+loop_variants: dp_loop fsdp_loop hybrid_2d_loop hybrid_3d_loop hybrid_3d_moe_loop
+
+dp_loop:
+	$(CXX) $(CXXFLAGS) $(MPI_LIBS) -DPROXY_LOOP -o $(DP_PATH)/dp_loop $(DP_PATH)/dp_loop.cpp $(LDFLAGS)
+
+fsdp_loop:
+	$(CXX) $(CXXFLAGS) $(MPI_LIBS) -DPROXY_LOOP -o $(DP_PATH)/fsdp_loop $(DP_PATH)/fsdp_loop.cpp $(LDFLAGS)
+
+hybrid_2d_loop:
+	$(CXX) $(CXXFLAGS) $(MPI_LIBS) -DPROXY_LOOP -o $(HYBRID_PATH)/hybrid_2d_loop $(HYBRID_PATH)/hybrid_2d_loop.cpp $(LDFLAGS)
+
+hybrid_3d_loop:
+	$(CXX) $(CXXFLAGS) $(MPI_LIBS) -DPROXY_LOOP -o $(HYBRID_PATH)/hybrid_3d_loop $(HYBRID_PATH)/hybrid_3d_loop.cpp $(LDFLAGS)
+
+hybrid_3d_moe_loop:
+	$(CXX) $(CXXFLAGS) $(MPI_LIBS) -DPROXY_LOOP -o $(HYBRID_PATH)/hybrid_3d_moe_loop $(HYBRID_PATH)/hybrid_3d_moe_loop.cpp $(LDFLAGS)
+
+clean:
+	rm -f $(DP_PATH)/dp $(DP_PATH)/fsdp $(HYBRID_PATH)/hybrid_2d $(HYBRID_PATH)/hybrid_3d $(HYBRID_PATH)/hybrid_3d_moe \
+	      $(DP_PATH)/dp_loop $(DP_PATH)/fsdp_loop $(HYBRID_PATH)/hybrid_2d_loop $(HYBRID_PATH)/hybrid_3d_loop $(HYBRID_PATH)/hybrid_3d_moe_loop
