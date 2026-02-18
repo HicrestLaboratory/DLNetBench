@@ -6,7 +6,6 @@
  *
  *********************************************************************/
 
- //TODO: oneCCL support
 #include <mpi.h>
 
 #include <unistd.h>
@@ -19,6 +18,8 @@
 #include <cstdlib>
 #include <filesystem>
 #include <nlohmann/json.hpp>
+
+#include "netcommunicators.hpp"
 
 #define NVML
 
@@ -149,6 +150,20 @@ int main(int argc, char* argv[]) {
     MPI_Comm_size(MPI_COMM_WORLD, &world_size);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     CCUTILS_MPI_INIT
+
+    ProcessEnv my_env;
+    my_env.init_processenv();
+
+    MpiNetworkComms my_net_comm(my_env);
+
+    if (rank == 0) {
+        printf("\n=== Network Topology Graph ===\n");
+        
+        // This is the function you asked about:
+        my_net_comm.graph.netPrint(stdout); 
+        
+        printf("\n==============================\n");
+    }
 
 #if defined(PROXY_ENABLE_CUDA)
     int num_gpus;

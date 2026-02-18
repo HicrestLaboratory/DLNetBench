@@ -17,6 +17,8 @@
 #include <filesystem>
 #include <nlohmann/json.hpp>
 
+#include "netcommunicators.hpp"
+
 namespace fs = std::filesystem;
 using nlohmann::json;
 
@@ -242,6 +244,20 @@ int main(int argc, char* argv[]) {
     if (num_experts <= 0) {
         std::cerr << "Error: Invalid number of experts in model stats: " << num_experts << "\n";
         return -1;
+    }
+
+    ProcessEnv my_env;
+    my_env.init_processenv();
+
+    MpiNetworkComms my_net_comm(my_env);
+
+    if (rank == 0) {
+        printf("\n=== Network Topology Graph ===\n");
+        
+        // This is the function you asked about:
+        my_net_comm.graph.netPrint(stdout); 
+        
+        printf("\n==============================\n");
     }
     
     assert(num_layers % num_stage == 0);
