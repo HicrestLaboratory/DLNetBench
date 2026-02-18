@@ -19,7 +19,7 @@
 #include <filesystem>
 #include <nlohmann/json.hpp>
 
-#include "netcommunicators.hpp"
+#include "../netcommunicators.hpp"
 
 #define NVML
 
