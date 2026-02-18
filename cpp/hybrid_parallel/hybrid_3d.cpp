@@ -216,8 +216,6 @@ int main(int argc, char* argv[]) {
     }
     
     std::map<std::string, uint64_t> model_stats = get_model_stats(file_path);
-
-    print_topology_graph(MPI_COMM_WORLD);
     
     // Get model stats from file
     uint64_t fwd_rt_whole_model = model_stats["avgForwardTime"]; // in us
@@ -241,6 +239,7 @@ int main(int argc, char* argv[]) {
     int dp_size = world_size / (num_stage * num_tensor_shards);
     
     CCUTILS_MPI_INIT
+    print_topology_graph(MPI_COMM_WORLD);
     
     // Create DP, PP, and TP communicators
     // Hierarchy: world_size = num_stages * num_tensor_shards * dp_size

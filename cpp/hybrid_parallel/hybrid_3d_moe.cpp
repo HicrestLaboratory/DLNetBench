@@ -245,8 +245,6 @@ int main(int argc, char* argv[]) {
         std::cerr << "Error: Invalid number of experts in model stats: " << num_experts << "\n";
         return -1;
     }
-
-    print_topology_graph(MPI_COMM_WORLD);
     
     assert(num_layers % num_stage == 0);
     assert(local_batch_size % num_microbatches == 0);
@@ -261,7 +259,7 @@ int main(int argc, char* argv[]) {
     int dp_size = world_size / (num_stage * num_expert_shards);
     
     CCUTILS_MPI_INIT
-    
+    print_topology_graph(MPI_COMM_WORLD);
     // Create DP, PP, and EP communicators
     // Hierarchy: world_size = num_stages * num_expert_shards * dp_size
     // Layout: [DP replicas] x [Pipeline stages] x [Expert shards]

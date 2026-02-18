@@ -241,8 +241,8 @@ int main(int argc, char* argv[]) {
                          fwd_rt_whole_model, bwd_rt_per_B, communicator);
     }
     #else
-    for(int iter = 0; iter < RUNS; iter++){
-        #ifdef PROXY_ENERGY_PROFILING
+    for(int iter = 0; iter < RUNS; iter++){        
+#ifdef PROXY_ENERGY_PROFILING
         std::string power_file = base_folder_path + sub_folder + "power_dp_rank_" + std::to_string(rank) + "run_" + std::to_string(iter) + ".csv";
         PowerProfiler powerProf(rank % num_gpus, POWER_SAMPLING_RATE_MS, power_file);
         #endif
@@ -292,12 +292,13 @@ int main(int argc, char* argv[]) {
     CCUTILS_SECTION_JSON_PUT(dp, "barrier_time", __timer_vals_barrier);
     CCUTILS_SECTION_JSON_PUT(dp, "hostname", host_name);
     #endif
-
+	
     #ifdef PROXY_ENERGY_PROFILING
     CCUTILS_SECTION_JSON_PUT(dp, "energy_consumed", energy_vals);
     #endif
-    CCUTILS_MPI_SECTION_END(dp);
 
+    CCUTILS_MPI_SECTION_END(dp);
+	
     #ifdef PROXY_ENABLE_CLL
     ncclCommDestroy(world_comm);
     #endif

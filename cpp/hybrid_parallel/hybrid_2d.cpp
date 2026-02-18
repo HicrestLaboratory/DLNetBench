@@ -189,10 +189,7 @@ int main(int argc, char* argv[]) {
         return -1;
     }
     
-    std::map<std::string, uint64_t> model_stats = get_model_stats(file_path);
-
-    print_topology_graph(MPI_COMM_WORLD);
-    
+    std::map<std::string, uint64_t> model_stats = get_model_stats(file_path);    
     // Get model stats from file
     uint64_t fwd_rt_whole_model = model_stats["avgForwardTime"]; // in us
     uint64_t bwd_rt_whole_model = model_stats["avgBackwardTime"]; // in us
@@ -224,6 +221,7 @@ int main(int argc, char* argv[]) {
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     
     CCUTILS_MPI_INIT
+    print_topology_graph(MPI_COMM_WORLD);
 
     assert(num_layers % num_stage == 0);
     assert(local_batch_size % num_microbatches == 0);
