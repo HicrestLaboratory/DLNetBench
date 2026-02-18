@@ -17,7 +17,7 @@
 #include <filesystem>
 #include <nlohmann/json.hpp>
 
-#include "netcommunicators.hpp"
+#include "../netcommunicators.hpp"
 
 namespace fs = std::filesystem;
 using nlohmann::json;
@@ -217,19 +217,7 @@ int main(int argc, char* argv[]) {
     
     std::map<std::string, uint64_t> model_stats = get_model_stats(file_path);
 
-    ProcessEnv my_env;
-    my_env.init_processenv();
-
-    MpiNetworkComms my_net_comm(my_env);
-
-    if (rank == 0) {
-        printf("\n=== Network Topology Graph ===\n");
-        
-        // This is the function you asked about:
-        my_net_comm.graph.netPrint(stdout); 
-        
-        printf("\n==============================\n");
-    }
+    print_topology_graph(MPI_COMM_WORLD);
     
     // Get model stats from file
     uint64_t fwd_rt_whole_model = model_stats["avgForwardTime"]; // in us
