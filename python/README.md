@@ -1,75 +1,45 @@
-# Transformer FLOPs and Model Size Profiler
+# Transformer Roofline Simulator (NVIDIA A100)
 
-This Python script computes the **FLOPs**, **model size**, and **forward/backward pass timings** for a Transformer model using a JSON configuration. It supports **encoder-only models** (like ViT or BERT), **decoder-only models** (like GPT3) **encoder-decoder models** (like standard Transformer seq2seq).
+This repository contains a theoretical performance simulator for Transformer-based models (Vision Transformers, LLMs, and MoE architectures). It utilizes the **Roofline Model** to estimate execution time based on hardware constraints and architectural complexity.
 
-## Features
+## 🚀 Overview
 
-* Compute **forward and backward FLOPs** using `torch.profiler`.
-* Calculate **model size** in bytes based on parameter data type.
-* Measure **average forward and backward time** on CPU or GPU.
-* Supports **configurable batch size** and **data type precision** (`float16`, `float32`).
-* Accepts **JSON configuration files** for flexibility.
+Predicting the performance of Large Language Models (LLMs) is complex due to the interplay between compute-heavy operations (Matrix Multiplications) and memory-heavy operations (Weight/Activation loading). 
 
-## Requirements
+This tool identifies whether a model is **Compute-Bound** or **Memory-Bound** on an **NVIDIA A100-SXM4-80GB**, providing theoretical bounds for:
+* Total FLOPs (Forward & Backward)
+* Memory Traffic (Bytes)
+* Execution Latency (Microseconds)
 
-* Python 3.9+
-* PyTorch 2.x
+## 📊 The Mathematical Model
 
-For PyTorch install follow the official [guide](https://pytorch.org/get-started/locally/).
+The simulator calculates the "Speed Limit" of the GPU for a specific model configuration. The achievable performance is defined by the **Minimum** of the hardware's peak compute and its memory-bandwidth-limited throughput:
 
-## JSON Configuration
-
-Example JSON files are located in `../models`. The configuration supports the following fields:
-
-| Field                | Type | Default | Description                      |
-| -------------------- | ---- | ------- | -------------------------------- |
-| `embed_dim`          | int  | 768     | Embedding dimension              |
-| `num_heads`          | int  | 12      | Number of attention heads        |
-| `ff_dim`             | int  | 3072    | Feedforward hidden dimension     |
-| `seq_len`            | int  | 197     | Input sequence length            |
-| `memory_seq_len`     | int  | 0       | Memory sequence length (decoder) |
-| `num_encoder_blocks` | int  | 12      | Number of encoder layers         |
-| `num_decoder_blocks` | int  | 0       | Number of decoder layers         |
-
-## Usage
-
-Run the script with a JSON configuration file:
-
-```bash
-python model_stats.py ../models/vit-b-16.json --batch_size 2 --dtype float32
-```
-
-### Optional Arguments
-
-* `--batch_size`: Batch size (default: 1)
-* `--scale_bwd_flops`: Scale factor for backward FLOPs (default: 2.0)
-* `--dtype`: Parameter precision (`float16`, `float32`; default: `float32`)
-- `--device`: Device to run the model on (`cpu` or `cuda`; default: `cpu`)
-
-## Output
-
-The script writes results to `../model_stats/<config_name>.txt`. Example output:
-
-```
-Forward_Flops:34918653456
-Backward_Flops:69837306912
-Model_Size:340217856
-Average_Forward_Time(us):23
-Average_Backward_Time_(us):12
-Batch_size:16
-FFN_Average_Forward_Time (us):15125
-FFN_Average_Backward_Time (us):24139
-Experts:4
-```
-
-* **Forward/Backward Flops**: Total FLOPs for the whole model. Backward FLOPs are computed as `forward_flops * scale_bwd_flops`.  
-* **Model Size**: Total number of parameters.  
-* **Forward/Backward Time**: The average time is first computed for a single block, and then multiplied by the number of blocks to obtain the total time for the entire model. For example, the total forward time can be written as:  
-
-  `Total Forward Time = (num_encoder_blocks * avg_encoder_fwd_time) + (num_decoder_blocks * avg_decoder_fwd_time)`  
-
-* **Batch_size**: The batch size used to compute the times.  
-* **FFN_Forward/Backward Time**: The average time for the FFN module of the transformer block (useful when doing MoE).  
-* **Experts**: Number of experts in the FFN module of a single block.
+$$Performance = \min(\text{Peak FLOPS}, \text{Arithmetic Intensity} \times \text{Bandwidth})$$
 
 
+
+### Time Calculation
+Execution time for any component (Attention or MLP) is derived as:
+$$Time = \frac{\text{Total FLOPs}}{\text{Achievable Performance}}$$
+
+## 🛠️ Key Components Modeled
+
+### 1. Attention Mechanism
+Calculates operations for QKV projections, attention scoring ($QK^T$), and output projection.
+* **FLOPs:** $L \times (8BNd^2 + 4BN^2d)$
+* **Memory:** Captures the movement of weights and KV cache/activations.
+
+### 2. Feed-Forward Network (MLP)
+Includes support for standard MLPs and **Mixture-of-Experts (MoE)**.
+* **FLOPs:** $L \times (4BNdH \times k)$
+* **Experts ($E$):** Total parameters scale with $E$.
+* **Top-k ($k$):** Computation only scales with active experts.
+
+### 3. Precision & Dtype
+The model automatically adjusts the hardware ceiling based on the data type:
+| Precision | Peak Throughput (A100) |
+| :--- | :--- |
+| **BF16 / FP16** | 312 TFLOPS |
+| **TF32** | 156 TFLOPS |
+| **FP32** | 19.5 TFLOPS |
