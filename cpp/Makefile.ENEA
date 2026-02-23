@@ -1,0 +1,82 @@
+# -------------------------
+# Makefile for OneCCL + SYCL + Intel MPI targeting Intel GPUs
+# -------------------------
+
+WITH_MPI ?= 1
+PROXY_SYCL ?= 1    # enable SYCL
+PROXY_ONECCL ?= 1  # enable OneCCL
+HALF ?= 0          # optional half precision
+
+# Compiler
+# mpiicpx is Intel's MPI wrapper for the DPC++/C++ compiler (icpx)
+CXX := mpiicpx
+
+DP_PATH := ./data_parallel
+HYBRID_PATH := ./hybrid_parallel
+
+# Paths
+# $CCL_ROOT is automatically set when you 'module load intel/oneapi'
+CCL_HOME ?= $(CCL_ROOT)
+ENERGY_PROFILER_HOME ?= $(HOME)/.local
+CCUTILS_INCLUDE ?= $(HOME)/.local/ccutils/install/include
+
+# Compiler flags
+# -fsycl is mandatory to compile device code for Intel GPUs
+CXXFLAGS := -O3 -std=c++17 -fsycl \
+            -I$(CCL_HOME)/include \
+            -I$(ENERGY_PROFILER_HOME)/include \
+            -I$(CCUTILS_INCLUDE) \
+            -DPROXY_ENABLE_SYCL -DPROXY_ENABLE_ONECCL \
+            -DWITH_MPI -DCCUTILS_ENABLE_SYCL -DCCUTILS_ENABLE_MPI
+
+# Linker flags
+LDFLAGS := -fsycl \
+           -L$(CCL_HOME)/lib
+
+# Libraries
+# -lccl for OneCCL communication, -lsycl for the SYCL runtime
+LDLIBS := -lccl -lsycl -lpthread -ldl # -lpower_profiler
+
+# -------------------------
+# Targets
+# -------------------------
+all: data_parallel hybrid_parallel
+
+data_parallel: dp fsdp
+hybrid_parallel: hybrid_2d hybrid_3d hybrid_3d_moe
+
+dp:
+	$(CXX) $(CXXFLAGS) -o $(DP_PATH)/dp $(DP_PATH)/dp.cpp $(LDFLAGS) $(LDLIBS)
+
+fsdp:
+	$(CXX) $(CXXFLAGS) -o $(DP_PATH)/fsdp $(DP_PATH)/fsdp.cpp $(LDFLAGS) $(LDLIBS)
+
+hybrid_2d:
+	$(CXX) $(CXXFLAGS) -o $(HYBRID_PATH)/hybrid_2d $(HYBRID_PATH)/hybrid_2d.cpp $(LDFLAGS) $(LDLIBS)
+
+hybrid_3d:
+	$(CXX) $(CXXFLAGS) -o $(HYBRID_PATH)/hybrid_3d $(HYBRID_PATH)/hybrid_3d.cpp $(LDFLAGS) $(LDLIBS)
+
+hybrid_3d_moe:
+	$(CXX) $(CXXFLAGS) -o $(HYBRID_PATH)/hybrid_3d_moe $(HYBRID_PATH)/hybrid_3d_moe.cpp $(LDFLAGS) $(LDLIBS)
+
+# loop versions
+dp_loop:
+	$(CXX) $(CXXFLAGS) -DPROXY_LOOP -o $(DP_PATH)/dp_loop $(DP_PATH)/dp_loop.cpp $(LDFLAGS) $(LDLIBS)
+
+fsdp_loop:
+	$(CXX) $(CXXFLAGS) -DPROXY_LOOP -o $(DP_PATH)/fsdp_loop $(DP_PATH)/fsdp_loop.cpp $(LDFLAGS) $(LDLIBS)
+
+hybrid_2d_loop:
+	$(CXX) $(CXXFLAGS) -DPROXY_LOOP -o $(HYBRID_PATH)/hybrid_2d_loop $(HYBRID_PATH)/hybrid_2d_loop.cpp $(LDFLAGS) $(LDLIBS)
+
+hybrid_3d_loop:
+	$(CXX) $(CXXFLAGS) -DPROXY_LOOP -o $(HYBRID_PATH)/hybrid_3d_loop $(HYBRID_PATH)/hybrid_3d_loop.cpp $(LDFLAGS) $(LDLIBS)
+
+hybrid_3d_moe_loop:
+	$(CXX) $(CXXFLAGS) -DPROXY_LOOP -o $(HYBRID_PATH)/hybrid_3d_moe_loop $(HYBRID_PATH)/hybrid_3d_moe_loop.cpp $(LDFLAGS) $(LDLIBS)
+
+clean:
+	rm -f $(DP_PATH)/dp $(DP_PATH)/fsdp $(HYBRID_PATH)/hybrid_2d $(HYBRID_PATH)/hybrid_3d $(HYBRID_PATH)/hybrid_3d_moe $(DP_PATH)/dp_loop $(DP_PATH)/fsdp_loop $(HYBRID_PATH)/hybrid_2d_loop $(HYBRID_PATH)/hybrid_3d_loop $(HYBRID_PATH)/hybrid_3d_moe_loop
+
+.PHONY: all clean

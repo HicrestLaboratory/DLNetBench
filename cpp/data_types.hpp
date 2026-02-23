@@ -40,6 +40,9 @@
         #include <hip/hip_bfloat16.h>
         using _FLOAT = hip_bfloat16;
 
+    #elif defined PROXY_ENABLE_ONECCL
+        using _FLOAT = sycl::ext::oneapi::bfloat16;
+	#define ONECCL_FLOAT_TYPE ccl::datatype::bfloat16
     #else
         #error "BFLOAT16 is defined but the target platform does not support it."
     #endif
@@ -60,7 +63,7 @@
     #endif
 
     #ifdef PROXY_ENABLE_ONECCL
-        using ONECCL_FLOAT_TYPE = float;
+        #define ONECCL_FLOAT_TYPE ccl::datatype::float32
     #endif
 
 #endif
