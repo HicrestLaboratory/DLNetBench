@@ -255,13 +255,14 @@ private:
 #ifdef PROXY_ENABLE_ONECCL
 class OneCCLCommunicator : public ProxyCommunicator {
 public:
-    OneCCLCommunicator(ccl::communicator&& comm_in, int num_streams = 1)
+    OneCCLCommunicator(ccl::communicator&& comm_in, sycl::context ctx, sycl::device dev, int num_streams = 1)
         : comm(std::move(comm_in)), num_streams(num_streams)
     {
         // create one queue per stream
         streams.resize(num_streams);
         for (int i = 0; i < num_streams; i++) {
-            streams[i] = sycl::queue(sycl::gpu_selector_v);
+	    
+            streams[i] = sycl::queue(ctx, dev, sycl::property::queue::in_order{});
         }
     }
 
@@ -351,6 +352,26 @@ private:
 */
 enum class Device { CPU, GPU };
 
+#if defined(PROXY_ENABLE_ONECCL)
+#include <sycl/sycl.hpp>
+namespace DeviceManager {
+    static std::unique_ptr<sycl::queue> q_ptr;
+
+    // Call this in main() to lock in the correct GPU for this rank
+    static void init(const sycl::device& dev) {
+        if (!q_ptr) {
+            q_ptr = std::make_unique<sycl::queue>(dev, sycl::property::queue::in_order{});
+        }
+    }
+
+    static sycl::queue& get_queue() {
+        if (!q_ptr) {
+            throw std::runtime_error("SYCL queue not initialized! Call DeviceManager::init() first.");
+        }
+        return *q_ptr;
+    }
+}
+#endif
 
 /**
 * @class Tensor
@@ -391,7 +412,7 @@ public:
                         size * sizeof(T)));
             CCUTILS_HIP_CHECK(hipMemset(data, 0, size * sizeof(T)););
     #elif defined(PROXY_ENABLE_ONECCL)
-        sycl::queue q(sycl::gpu_selector_v);        // temporary queue
+        auto& q = DeviceManager::get_queue();
         data = sycl::malloc_device<T>(size, q);    // allocate device memory
         if (!data) 
             throw std::runtime_error("SYCL device allocation failed");
@@ -418,8 +439,7 @@ public:
     #elif defined(PROXY_ENABLE_HIP)
                 CCUTILS_HIP_FREE_SAFE(data);
     #elif defined(PROXY_ENABLE_ONECCL)
-                sycl::queue q(sycl::gpu_selector_v); // temporary queue
-                sycl::free(data, q);
+                sycl::free(data, DeviceManager::get_queue());
     #endif
 
             }

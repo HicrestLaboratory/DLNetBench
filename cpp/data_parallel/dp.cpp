@@ -60,7 +60,7 @@ Proxy_CommType world_comm;
 #endif
 
 // Device to use
-#if defined(PROXY_ENABLE_CUDA) || defined(PROXY_ENABLE_HIP)
+#if defined(PROXY_ENABLE_CUDA) || defined(PROXY_ENABLE_HIP) || defined(PROXY_ENABLE_ONECCL)
     constexpr Device device = Device::GPU;
 #else
     constexpr Device device = Device::CPU;
@@ -145,14 +145,19 @@ int main(int argc, char* argv[]) {
     for (int i = 0; i < num_buckets; i++) {
         params_per_bucket[i] = base_params_per_bucket + (i < remainder ? 1 : 0); // distribute remainder across the buckets
     }
-            
+
+#ifdef PROXY_ENABLE_ONECCL
+   int provided;
+    MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided);
+#else 
     MPI_Init(&argc,&argv);
+#endif
     MPI_Comm_size(MPI_COMM_WORLD, &world_size);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     CCUTILS_MPI_INIT
-
+    
     print_topology_graph(MPI_COMM_WORLD);
-
+    
 #if defined(PROXY_ENABLE_CUDA)
     int num_gpus;
     cudaGetDeviceCount(&num_gpus);
@@ -177,8 +182,10 @@ int main(int argc, char* argv[]) {
     int num_gpus = gpus.size();
     sycl::device dev = gpus[rank % num_gpus];
 
-    sycl::context ctx(dev);
-    sycl::queue queue(ctx, dev);
+    DeviceManager::init(dev);
+    sycl::queue& queue = DeviceManager::get_queue();
+  
+    sycl::context ctx = queue.get_context();
 
     // Initialize oneCCL
     ccl::init();
@@ -201,7 +208,7 @@ int main(int argc, char* argv[]) {
     ccl::context ccl_ctx = ccl::create_context(ctx);
     // Create communicator
     auto world_comm_ccl = ccl::create_communicator(world_size, rank, ccl_dev, ccl_ctx, kvs);
-    OneCCLCommunicator* communicator = new OneCCLCommunicator(std::move(world_comm_ccl), num_buckets);    
+    OneCCLCommunicator* communicator = new OneCCLCommunicator(std::move(world_comm_ccl), ctx, dev, num_buckets); 
 #else
     MPICommunicator* communicator = new MPICommunicator(MPI_COMM_WORLD, MPI_FLOAT, num_buckets);
 #endif

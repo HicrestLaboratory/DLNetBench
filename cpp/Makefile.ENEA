@@ -24,10 +24,9 @@ CCUTILS_INCLUDE ?= $(HOME)/.local/ccutils/install/include
 # -fsycl is mandatory to compile device code for Intel GPUs
 CXXFLAGS := -O3 -std=c++17 -fsycl \
             -I$(CCL_HOME)/include \
-            -I$(ENERGY_PROFILER_HOME)/include \
             -I$(CCUTILS_INCLUDE) \
-            -DPROXY_ENABLE_SYCL -DPROXY_ENABLE_ONECCL \
-            -DWITH_MPI -DCCUTILS_ENABLE_SYCL -DCCUTILS_ENABLE_MPI
+            -DPROXY_ENABLE_ONECCL \
+            -DWITH_MPI -DCCUTILS_ENABLE_MPI
 
 # Linker flags
 LDFLAGS := -fsycl \
