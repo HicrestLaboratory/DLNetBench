@@ -30,21 +30,20 @@
 #define PROXY_ENABLE_CCL 1 
 #endif 
 
-#ifdef PROXY_BFLOAT16
-
+// -----------------------------
+// Default: BFLOAT16
+// -----------------------------
+#ifndef PROXY_FLOAT8  // Se FP8 non è richiesto
     #if defined(PROXY_CUDA)
         #include <cuda_bf16.h>
         using _FLOAT = __nv_bfloat16;
-
     #elif defined(PROXY_HIP)
         #include <hip/hip_bfloat16.h>
         using _FLOAT = hip_bfloat16;
-
-    #elif defined PROXY_ENABLE_ONECCL
+    #elif defined(PROXY_ENABLE_ONECCL)
         using _FLOAT = sycl::ext::oneapi::bfloat16;
-	#define ONECCL_FLOAT_TYPE ccl::datatype::bfloat16
     #else
-        #error "BFLOAT16 is defined but the target platform does not support it."
+        using _FLOAT = float;
     #endif
 
     #ifdef PROXY_ENABLE_NCCL
@@ -52,20 +51,31 @@
     #endif
 
     #ifdef PROXY_ENABLE_ONECCL
-        using ONECCL_FLOAT_TYPE = sycl::ext::oneapi::bfloat16;
+        #define ONECCL_FLOAT_TYPE ccl::datatype::bfloat16
     #endif
 
-#else
-    using _FLOAT = float;
+// -----------------------------
+// User requested FP8
+// -----------------------------
+#else  // PROXY_FLOAT8 definito
+    #if defined(PROXY_CUDA)
+        #include <cuda_fp8.h>
+        using _FLOAT = __nv_fp8_e4m3;  // o __nv_fp8_e5m2
+    #elif defined(PROXY_HIP)
+        #error "FP8 not supported on HIP yet"
+    #elif defined(PROXY_ENABLE_ONECCL)
+        using _FLOAT = sycl::ext::oneapi::experimental::fp8;
+    #else
+        #error "FP8 requested but the platform does not support it."
+    #endif
 
-    #ifdef PROXY_ENABLE_CCL
-        #define NCCL_FLOAT_TYPE ncclFloat
+    #ifdef PROXY_ENABLE_NCCL
+        #define NCCL_FLOAT_TYPE ncclFloat8  // se NCCL supporta FP8
     #endif
 
     #ifdef PROXY_ENABLE_ONECCL
-        #define ONECCL_FLOAT_TYPE ccl::datatype::float32
+        #define ONECCL_FLOAT_TYPE ccl::datatype::fp8
     #endif
-
 #endif
 
 // Communicator type

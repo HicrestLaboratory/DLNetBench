@@ -103,7 +103,7 @@ if __name__ == "__main__":
 
     # Precision and peak
     # FIXED: Added "minerva" to the list of models that use bfloat16
-    dtype = torch.bfloat16 if any(x in args.model_name for x in ["llama", "mixtral", "minerva"]) else torch.float32
+    dtype = torch.bfloat16
     s = bytes_per_element(dtype)
     peak_flops = BASE_PEAK[dtype]
     if dtype == torch.float32 and tf32_enabled():
@@ -130,11 +130,11 @@ if __name__ == "__main__":
     model_size = sum(p.numel() for p in model.parameters())
 
     # Output
-    out_dir = os.path.expanduser("~/DNNProxy/model_stats")
+    out_dir = os.path.expanduser("~/DLNetBench/model_stats")
     os.makedirs(out_dir, exist_ok=True)
-    out_file = os.path.join(out_dir, f"{args.model_name}_{B}_sim.txt")
+    out_file = os.path.join(out_dir, f"{args.model_name}_{B}.txt")
 
-    with open(out_file, "w") as f:
+    with open(out_file, "w+") as f:
         f.write(f"Forward_Flops:{int(total_fwd_flops)}\n")
         f.write(f"Backward_Flops:{int(2*total_fwd_flops)}\n")
         f.write(f"Model_Size:{model_size}\n")
