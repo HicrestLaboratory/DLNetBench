@@ -107,6 +107,7 @@ int run_data_pipe_expert_parallel(
     int num_microbatches, 
     int stage_id, 
     int num_stage,
+    int layers_per_stage,
     uint64_t pipe_msg_size,
     uint64_t fwd_rt,
     uint64_t bwd_rt,
@@ -153,7 +154,7 @@ int run_data_pipe_expert_parallel(
         // For simplicity, we do 2 all-to-all operations per microbatch:
         // 1. Route tokens TO experts (before expert computation)
         // 2. Route tokens FROM experts (after expert computation)
-        for(int ep_iter = 0; ep_iter < 2; ep_iter++){
+        for(int ep_iter = 0; ep_iter < (2*layers_per_stage); ep_iter++){
             CCUTILS_MPI_TIMER_START(ep_comm)
             ep_communicator->Alltoall(ep_send_buffer->data, ep_alltoall_size, ep_recv_buffer->data, ep_alltoall_size);
             CCUTILS_MPI_TIMER_STOP(ep_comm)
@@ -183,7 +184,7 @@ int run_data_pipe_expert_parallel(
         
         // Expert parallel communication during backward pass
         // All-to-All for gradient routing back through experts
-        for(int ep_iter = 0; ep_iter < 2; ep_iter++){
+        for(int ep_iter = 0; ep_iter < (2*layers_per_stage); ep_iter++){
             CCUTILS_MPI_TIMER_START(ep_comm)
             ep_communicator->Alltoall(ep_send_buffer->data, ep_alltoall_size, ep_recv_buffer->data, ep_alltoall_size);
             CCUTILS_MPI_TIMER_STOP(ep_comm)
@@ -240,7 +241,7 @@ int main(int argc, char* argv[]) {
     float sample_size_bytes = sequence_length * embedded_dim * sizeof(_FLOAT);
     
     // Get number of experts from model stats
-    int num_experts = model_stats["Experts"];
+    int num_experts = model_stats["experts"];
     if (num_experts <= 0) {
         std::cerr << "Error: Invalid number of experts in model stats: " << num_experts << "\n";
         return -1;
@@ -289,9 +290,7 @@ int main(int argc, char* argv[]) {
     MPI_Comm_rank(dp_comm, &dp_rank);
     MPI_Comm_rank(pp_comm, &pp_rank);
     MPI_Comm_rank(ep_comm, &ep_rank);
-    
-    // Verify stage_id matches pp_rank
-    assert(stage_id == pp_rank);
+ 
 
     // Compute per-stage and per-microbatch runtimes
     uint64_t fwd_rt_per_stage = fwd_rt_whole_model / num_stage;
@@ -311,7 +310,9 @@ int main(int argc, char* argv[]) {
     uint64_t tokens_per_microbatch = samples_per_microbatch * sequence_length;
     // Each device sends to every other device (including self)
     // Size per device pair: (tokens_per_microbatch / num_expert_shards) * embedded_dim
-    uint64_t ep_alltoall_size = (tokens_per_microbatch * embedded_dim) / (num_expert_shards);
+    int top_k=2;
+    int layers_per_stage = num_layers/num_stage;
+    uint64_t ep_alltoall_size = (tokens_per_microbatch * top_k * embedded_dim) / (num_expert_shards);
     
     // DP all-reduce size (gradients for parameters in this stage, divided by EP shards)
     // In MoE, each expert shard has its own copy of expert parameters
@@ -454,15 +455,15 @@ int main(int argc, char* argv[]) {
     Tensor<_FLOAT, device>* bwd_send_buff = new Tensor<_FLOAT, device>(pipe_msg_size);
     Tensor<_FLOAT, device>* bwd_recv_buff = new Tensor<_FLOAT, device>(pipe_msg_size);
     
-    Tensor<_FLOAT, device>* ep_send_buffer = new Tensor<_FLOAT, device>(ep_alltoall_size);
-    Tensor<_FLOAT, device>* ep_recv_buffer = new Tensor<_FLOAT, device>(ep_alltoall_size);
+    Tensor<_FLOAT, device>* ep_send_buffer = new Tensor<_FLOAT, device>(ep_alltoall_size * num_expert_shards);
+    Tensor<_FLOAT, device>* ep_recv_buffer = new Tensor<_FLOAT, device>(ep_alltoall_size * num_expert_shards);
     
     MPI_Barrier(MPI_COMM_WORLD);
     
     // Warmup
     std::vector<float> energy_vals;
     for(int wmp = 0; wmp < WARM_UP; wmp++){
-        run_data_pipe_expert_parallel(num_microbatches, stage_id, num_stage, pipe_msg_size,
+        run_data_pipe_expert_parallel(num_microbatches, stage_id, num_stage, layers_per_stage, pipe_msg_size,
                               fwd_rt_per_microbatch, bwd_rt_per_microbatch,
                               grad_ptr, sum_grad_ptr, dp_allreduce_size,
                               fwd_send_buff, fwd_recv_buff, bwd_send_buff, bwd_recv_buff,
@@ -478,7 +479,7 @@ int main(int argc, char* argv[]) {
 
     #ifdef PROXY_LOOP
     while(true){
-        run_data_pipe_expert_parallel(num_microbatches, stage_id, num_stage, pipe_msg_size,
+        run_data_pipe_expert_parallel(num_microbatches, stage_id, num_stage, layers_per_stage, pipe_msg_size,
                               fwd_rt_per_microbatch, bwd_rt_per_microbatch,
                               grad_ptr, sum_grad_ptr, dp_allreduce_size,
                               fwd_send_buff, fwd_recv_buff, bwd_send_buff, bwd_recv_buff,
@@ -497,7 +498,7 @@ int main(int argc, char* argv[]) {
         powerProf.start();
         #endif
         
-        run_data_pipe_expert_parallel(num_microbatches, stage_id, num_stage, pipe_msg_size,
+        run_data_pipe_expert_parallel(num_microbatches, stage_id, num_stage, layers_per_stage, pipe_msg_size,
                               fwd_rt_per_microbatch, bwd_rt_per_microbatch,
                               grad_ptr, sum_grad_ptr, dp_allreduce_size,
                               fwd_send_buff, fwd_recv_buff, bwd_send_buff, bwd_recv_buff,

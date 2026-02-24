@@ -2,11 +2,6 @@
 # Minimal Makefile for NCCL + CUDA + MPI using nvcc
 # -------------------------
 
-WITH_MPI ?= 1
-PROXY_CUDA ?= 1  # enable CUDA
-PROXY_NCCL ?= 1  # enable NCCL
-HALF ?= 0        # optional half precision
-
 NVCC := nvcc
 DP_PATH := ./data_parallel
 HYBRID_PATH := ./hybrid_parallel
@@ -23,7 +18,7 @@ CXXFLAGS := -O3 --std=c++17 \
             -I$(ENERGY_PROFILER_HOME)/include \
             -I$(CCUTILS_INCLUDE) \
             -DPROXY_ENABLE_CUDA -DPROXY_ENABLE_NCCL \
-            -DWITH_MPI -DCCUTILS_ENABLE_CUDA -DCCUTILS_ENABLE_MPI #-DNVML
+	    -DWITH_MPI -DCCUTILS_ENABLE_CUDA -DCCUTILS_ENABLE_MPI #-DNVML
 
 # Linker flags
 LDFLAGS := -L$(CUDA_HOME)/lib64 \

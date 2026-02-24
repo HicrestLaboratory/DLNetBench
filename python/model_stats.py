@@ -73,14 +73,21 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Theoretical Roofline Simulator")
     parser.add_argument("model_name", choices=list(MODELS.keys()))
     parser.add_argument("--batch_size", type=int, default=1)
+    parser.add_argument("--window_size", type=int, default=None, help="Sliding window size (e.g. 4096)")
     args = parser.parse_args()
 
     hf_name, model_class, config_class = MODELS[args.model_name]
-
+    config_window = getattr(config, "sliding_window", None)
+    if config_window is not None:
+        W = config_window
+    elif args.window_size is not None:
+        W = args.window_size
+    else:
+        W = N
     # Load config
     print(f"Loading config for {args.model_name}...")
     config = config_class.from_pretrained(hf_name, trust_remote_code=True)
-
+    effective_window = min(W, N)
     # Architecture parameters
     L = getattr(config, "num_hidden_layers", getattr(config, "n_layer", 12))
     d = getattr(config, "hidden_size", getattr(config, "n_embd", 768))
@@ -110,7 +117,7 @@ if __name__ == "__main__":
         peak_flops = TF32_PEAK[torch.float32]
 
     # FLOPs
-    attn_f = (8 * B * N * d**2 + 4 * B * N**2 * d) * L
+    attn_f = (8 * B * N * d**2 + 4 * B * N*effective_window * d) * L
     mlp_f = (4 * B * N * d * H * k) * L
     total_fwd_flops = attn_f + mlp_f
 
