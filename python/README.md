@@ -15,7 +15,7 @@ This tool identifies whether a model is **Compute-Bound** or **Memory-Bound** on
 
 The simulator calculates the "Speed Limit" of the GPU for a specific model configuration. The achievable performance is defined by the **Minimum** of the hardware's peak compute and its memory-bandwidth-limited throughput:
 
-$$Performance = \min(\text{Peak FLOPS}, \text{Arithmetic Intensity} \times \text{Bandwidth})$$
+$$Achievable Performance = \min(\text{Peak FLOPS}, \text{Arithmetic Intensity} \times \text{Bandwidth})$$
 
 
 
@@ -37,9 +37,7 @@ Includes support for standard MLPs and **Mixture-of-Experts (MoE)**.
 * **Top-k ($k$):** Computation only scales with active experts.
 
 ### 3. Precision & Dtype
-The model automatically adjusts the hardware ceiling based on the data type:
+The model uses BFLOAT16 as default:
 | Precision | Peak Throughput (A100) |
 | :--- | :--- |
 | **BF16 / FP16** | 312 TFLOPS |
-| **TF32** | 156 TFLOPS |
-| **FP32** | 19.5 TFLOPS |
