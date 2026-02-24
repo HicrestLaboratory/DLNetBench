@@ -159,7 +159,7 @@ void run_fsdp(Tensor<_FLOAT, device>** shard_params,
                                        allreduce_params[u]->data,
                                        static_cast<int>(max_params_per_shard[u]),
                   		       u); // handle last unit(unit 0) allreduce
-	std::cout << "wait for reduce\n";
+	
 	CCUTILS_MPI_TIMER_START(barrier);
         allreduce_comm->WaitAll(num_units);
         CCUTILS_MPI_TIMER_STOP(barrier);
