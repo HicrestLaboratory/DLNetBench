@@ -166,8 +166,8 @@ public:
         // 2. Iterate over all ranks to post Send/Recv
         for (int r = 0; r < comm_size; r++) {
             // Calculate offsets: Move pointer by (rank * count) elements
-            const float* send_ptr = static_cast<const float*>(sendbuf) + (r * sendcount);
-            float* recv_ptr = static_cast<float*>(recvbuf) + (r * recvcount);
+            const _FLOAT* send_ptr = static_cast<const _FLOAT*>(sendbuf) + (r * sendcount);
+            _FLOAT* recv_ptr = static_cast<_FLOAT*>(recvbuf) + (r * recvcount);
 
             // Standard NCCL Send/Recv calls
             ncclSend(send_ptr, sendcount, NCCL_FLOAT_TYPE, r, comm, streams[0]);
