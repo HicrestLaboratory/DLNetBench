@@ -251,7 +251,7 @@ int main(int argc, char* argv[]) {
         ncclGetUniqueId(&id);
     }
     MPI_Bcast(&id, sizeof(id), MPI_BYTE, 0, MPI_COMM_WORLD);
-    ncclCommInitRank(&world_comm, world_size, id, rank);i
+    ncclCommInitRank(&world_comm, world_size, id, rank);
     // create NCCL communicators for unit_comm and allreduce_comm
     ncclComm_t unit_nccl_comm;
     ncclComm_t allreduce_nccl_comm;
