@@ -181,7 +181,7 @@ int main(int argc, char* argv[]) {
     std::vector<sycl::device> gpus = sycl::device::get_devices(sycl::info::device_type::gpu);
     int num_gpus = gpus.size();
     sycl::device dev = gpus[rank % num_gpus];
-
+ 
     DeviceManager::init(dev);
     sycl::queue& queue = DeviceManager::get_queue();
   
