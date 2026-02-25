@@ -37,7 +37,7 @@ using nlohmann::json;
 
 #ifdef PROXY_ENABLE_ONECCL
 #include <oneapi/ccl.hpp>
-#include <CL/sycl.hpp>
+#include <sycl/sycl.hpp>
 #endif
 
 // Project headers
@@ -56,7 +56,7 @@ Proxy_CommType world_comm;
 #endif
 
 // Device to use
-#if defined(PROXY_ENABLE_CUDA) || defined(PROXY_ENABLE_HIP)
+#if defined(PROXY_ENABLE_CUDA) || defined(PROXY_ENABLE_HIP) || defined(PROXY_ENABLE_ONECCL)
 constexpr Device device = Device::GPU;
 #else
 constexpr Device device = Device::CPU;
@@ -283,55 +283,49 @@ int main(int argc, char* argv[]) {
     int num_gpus = gpus.size();
 
     // DP communicator
-    sycl::device dp_dev = gpus[dp_rank % num_gpus];
-    sycl::context dp_ctx(dp_dev);
-    sycl::queue dp_queue(dp_ctx, dp_dev);
+    sycl::device dev = gpus[rank % num_gpus];
+    DeviceManager::init(dev);
+    sycl::queue& queue = DeviceManager::get_queue();
+    sycl::context ctx = queue.get_context();
+
+    ccl::init();
+    ccl::device ccl_dev = ccl::create_device(dev);
+    ccl::context ccl_ctx = ccl::create_context(ctx);
 
     // Create KVS for DP
     ccl::shared_ptr_class<ccl::kvs> dp_kvs;
     if (dp_rank == 0) dp_kvs = ccl::create_main_kvs();
 
     // Serialize and broadcast KVS address via MPI
-    std::vector<char> dp_addr;
-    if (dp_rank == 0) dp_addr = dp_kvs->get_address();
+    ccl::kvs::address_type dp_kvs_addr;
+    if (dp_rank == 0) dp_kvs_addr = dp_kvs->get_address();
 
-    size_t dp_addr_size = dp_addr.size();
-    MPI_Bcast(&dp_addr_size, 1, MPI_UNSIGNED_LONG, 0, dp_comm);
-    if (dp_rank != 0) dp_addr.resize(dp_addr_size);
-    MPI_Bcast(dp_addr.data(), dp_addr_size, MPI_BYTE, 0, dp_comm);
-
-    if (dp_rank != 0) dp_kvs = ccl::create_kvs(dp_addr);
+    MPI_Bcast(dp_kvs_addr.data(), dp_kvs_addr.size(), MPI_BYTE, 0, dp_comm);
+    if (dp_rank != 0) dp_kvs = ccl::create_kvs(dp_kvs_addr);
 
     // Create DP communicator
-    auto dp_world_comm = ccl::create_communicator(dp_size, dp_rank, dp_kvs, dp_ctx);
-    OneCCLCommunicator* dp_communicator = new OneCCLCommunicator(dp_world_comm, 1);
+    auto dp_world_comm = ccl::create_communicator(dp_size, dp_rank, ccl_dev, ccl_ctx, dp_kvs);
+    OneCCLCommunicator* dp_communicator = new OneCCLCommunicator(std::move(dp_world_comm), ctx, dev, 1);
 
     // PP communicator
     int pp_size;
     MPI_Comm_size(pp_comm, &pp_size);
-
-    sycl::device pp_dev = gpus[pp_rank % num_gpus];
-    sycl::context pp_ctx(pp_dev);
-    sycl::queue pp_queue(pp_ctx, pp_dev);
 
     // Create KVS for PP
     ccl::shared_ptr_class<ccl::kvs> pp_kvs;
     if (pp_rank == 0) pp_kvs = ccl::create_main_kvs();
 
     // Serialize and broadcast KVS address via MPI
-    std::vector<char> pp_addr;
-    if (pp_rank == 0) pp_addr = pp_kvs->get_address();
+    ccl::kvs::address_type pp_kvs_addr;
+    if (pp_rank == 0) pp_kvs_addr = pp_kvs->get_address();
 
-    size_t pp_addr_size = pp_addr.size();
-    MPI_Bcast(&pp_addr_size, 1, MPI_UNSIGNED_LONG, 0, pp_comm);
-    if (pp_rank != 0) pp_addr.resize(pp_addr_size);
-    MPI_Bcast(pp_addr.data(), pp_addr_size, MPI_BYTE, 0, pp_comm);
+    MPI_Bcast(pp_kvs_addr.data(), pp_kvs_addr.size(), MPI_BYTE, 0, pp_comm);
 
-    if (pp_rank != 0) pp_kvs = ccl::create_kvs(pp_addr);
+    if (pp_rank != 0) pp_kvs = ccl::create_kvs(pp_kvs_addr);
 
     // Create PP communicator
-    auto pp_world_comm = ccl::create_communicator(pp_size, pp_rank, pp_kvs, pp_ctx);
-    OneCCLCommunicator* pp_communicator = new OneCCLCommunicator(pp_world_comm, 1);
+    auto pp_world_comm = ccl::create_communicator(pp_size, pp_rank, ccl_dev, ccl_ctx, pp_kvs);
+    OneCCLCommunicator* pp_communicator = new OneCCLCommunicator(std::move(pp_world_comm), ctx, dev, 1);
 
 #else
     MPICommunicator* dp_communicator = new MPICommunicator(dp_comm, MPI_FLOAT, 1);
