@@ -372,73 +372,62 @@ int main(int argc, char* argv[]) {
     int num_gpus = gpus.size();
 
     // DP communicator
-    sycl::device dp_dev = gpus[dp_rank % num_gpus];
-    sycl::context dp_ctx(dp_dev);
-    sycl::queue dp_queue(dp_ctx, dp_dev);
+    sycl::device dev = gpus[rank % num_gpus];
+    DeviceManager::init(dev);
+    sycl::queue& queue = DeviceManager::get_queue();
+    sycl::context ctx = queue.get_context();
 
+    ccl::init();
+    ccl::device ccl_dev = ccl::create_device(dev);
+    ccl::context ccl_ctx = ccl::create_context(ctx);
+
+    // DP communicator
     ccl::shared_ptr_class<ccl::kvs> dp_kvs;
     if (dp_rank == 0) dp_kvs = ccl::create_main_kvs();
 
-    std::vector<char> dp_addr;
-    if (dp_rank == 0) dp_addr = dp_kvs->get_address();
+    ccl::kvs::address_type dp_addr;
+    if (dp_rank == 0) dp_kvs->get_address();
 
-    size_t dp_addr_size = dp_addr.size();
-    MPI_Bcast(&dp_addr_size, 1, MPI_UNSIGNED_LONG, 0, dp_comm);
-    if (dp_rank != 0) dp_addr.resize(dp_addr_size);
-    MPI_Bcast(dp_addr.data(), dp_addr_size, MPI_BYTE, 0, dp_comm);
+    MPI_Bcast(dp_addr.data(), dp_addr.size(), MPI_BYTE, 0, dp_comm);
 
     if (dp_rank != 0) dp_kvs = ccl::create_kvs(dp_addr);
 
-    auto dp_world_comm = ccl::create_communicator(dp_size, dp_rank, dp_kvs, dp_ctx);
-    OneCCLCommunicator* dp_communicator = new OneCCLCommunicator(dp_world_comm, 1);
+    auto dp_world_comm = ccl::create_communicator(dp_size, dp_rank, ccl_dev, ccl_ctx, dp_kvs);
+    OneCCLCommunicator* dp_communicator = new OneCCLCommunicator(std::move(dp_world_comm), ctx, dev, 1);
 
     // PP communicator
     int pp_size;
     MPI_Comm_size(pp_comm, &pp_size);
 
-    sycl::device pp_dev = gpus[pp_rank % num_gpus];
-    sycl::context pp_ctx(pp_dev);
-    sycl::queue pp_queue(pp_ctx, pp_dev);
-
     ccl::shared_ptr_class<ccl::kvs> pp_kvs;
     if (pp_rank == 0) pp_kvs = ccl::create_main_kvs();
 
-    std::vector<char> pp_addr;
+    ccl::kvs::address_type pp_addr;
     if (pp_rank == 0) pp_addr = pp_kvs->get_address();
 
-    size_t pp_addr_size = pp_addr.size();
-    MPI_Bcast(&pp_addr_size, 1, MPI_UNSIGNED_LONG, 0, pp_comm);
-    if (pp_rank != 0) pp_addr.resize(pp_addr_size);
-    MPI_Bcast(pp_addr.data(), pp_addr_size, MPI_BYTE, 0, pp_comm);
+    MPI_Bcast(pp_addr.data(), pp_addr.size(), MPI_BYTE, 0, pp_comm);
 
     if (pp_rank != 0) pp_kvs = ccl::create_kvs(pp_addr);
 
-    auto pp_world_comm = ccl::create_communicator(pp_size, pp_rank, pp_kvs, pp_ctx);
-    OneCCLCommunicator* pp_communicator = new OneCCLCommunicator(pp_world_comm, 1);
+    auto pp_world_comm = ccl::create_communicator(pp_size, pp_rank, ccl_dev, ccl_ctx, pp_kvs);
+    OneCCLCommunicator* pp_communicator = new OneCCLCommunicator(std::move(pp_world_comm), ctx, dev, 1);
 
     // EP communicator
     int ep_size;
     MPI_Comm_size(ep_comm, &ep_size);
 
-    sycl::device ep_dev = gpus[ep_rank % num_gpus];
-    sycl::context ep_ctx(ep_dev);
-    sycl::queue ep_queue(ep_ctx, ep_dev);
-
     ccl::shared_ptr_class<ccl::kvs> ep_kvs;
     if (ep_rank == 0) ep_kvs = ccl::create_main_kvs();
 
-    std::vector<char> ep_addr;
+    ccl::kvs::address_type ep_addr;
     if (ep_rank == 0) ep_addr = ep_kvs->get_address();
 
-    size_t ep_addr_size = ep_addr.size();
-    MPI_Bcast(&ep_addr_size, 1, MPI_UNSIGNED_LONG, 0, ep_comm);
-    if (ep_rank != 0) ep_addr.resize(ep_addr_size);
-    MPI_Bcast(ep_addr.data(), ep_addr_size, MPI_BYTE, 0, ep_comm);
+    MPI_Bcast(ep_addr.data(), ep_addr.size(), MPI_BYTE, 0, ep_comm);    
 
     if (ep_rank != 0) ep_kvs = ccl::create_kvs(ep_addr);
 
-    auto ep_world_comm = ccl::create_communicator(ep_size, ep_rank, ep_kvs, ep_ctx);
-    OneCCLCommunicator* ep_communicator = new OneCCLCommunicator(ep_world_comm, 1);
+    auto ep_world_comm = ccl::create_communicator(ep_size, ep_rank, ccl_dev, ccl_ctx, ep_kvs);
+    OneCCLCommunicator* ep_communicator = new OneCCLCommunicator(std::move(ep_world_comm), ctx, dev, 1);
 
 #else
     MPICommunicator* dp_communicator = new MPICommunicator(dp_comm, MPI_FLOAT, 1);

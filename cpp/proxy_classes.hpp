@@ -23,7 +23,7 @@
 
 #ifdef PROXY_ENABLE_ONECCL
     #include <oneapi/ccl.hpp>
-    #include <CL/sycl.hpp>  // SYCL header for queues and device memory
+    #include <sycl/sycl.hpp>  // SYCL header for queues and device memory
 #endif
 
 //TODO: add Send/Recv methods and make function inlines for performance

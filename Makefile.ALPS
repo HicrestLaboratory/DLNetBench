@@ -1,0 +1,30 @@
+# -------------------------
+# Makefile.ALPS
+# Alps (CSCS) — nvcc, Cray MPI
+# -------------------------
+
+CXX := nvcc
+
+# -- System paths (CUDA auto-detected from nvcc; NCCL_HOME from environment) --
+# Override if auto-detection fails:
+CUDA_HOME := /user-environment/linux-sles15-neoverse_v2/gcc-13.2.0/cuda-12.4.0-wezsc3dqlnvhhvjyvi5xrkxe2t2ofwgo
+NCCL_HOME := /user-environment/linux-sles15-neoverse_v2/gcc-13.2.0/nccl-2.20.3-1-l2d55ru4lupkbzxnqm2b5nrvlgnt3v3s
+MPI_HOME := /user-environment/linux-sles15-neoverse_v2/gcc-13.2.0/cray-mpich-8.1.30-mrkhzmus5xo47kryelzzh3mkxu3kfv6j
+
+# -------------------------------------------------------
+# Config: nccl
+#   CUDA buffers + NCCL collectives
+# -------------------------------------------------------
+CONFIGS += nccl
+BACKEND_nccl := nccl
+
+# -------------------------------------------------------
+# Config: mpi_gpu_cuda
+#   CUDA buffers, MPI collectives only (no NCCL)
+# -------------------------------------------------------
+CONFIGS += mpi_gpu_cuda
+BACKEND_mpi_gpu_cuda := mpi_gpu_cuda
+
+
+include Makefile.flags.mk
+include Makefile.common

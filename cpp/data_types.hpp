@@ -23,7 +23,7 @@
 
 #ifdef PROXY_ENABLE_ONECCL
     #include <oneapi/ccl.hpp>
-    #include <CL/sycl.hpp>  // SYCL header for queues and device memory
+    #include <sycl/sycl.hpp>  // SYCL header for queues and device memory
 #endif
 
 #if defined(PROXY_ENABLE_NCCL) || defined(PROXY_ENABLE_RCCL)

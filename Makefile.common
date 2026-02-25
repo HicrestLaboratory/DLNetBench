@@ -1,0 +1,123 @@
+# -------------------------
+# Makefile.common
+# Shared build logic for all systems.
+# Include this from a system-specific Makefile AFTER Makefile.flags.mk.
+#
+# Expects:
+#   CONFIGS          — list of config names to build
+#   CXX              — compiler (system-wide; can be overridden per config via CXX_<config>)
+#   CXXFLAGS_<cfg>   — assembled by Makefile.flags.mk
+#   LDFLAGS_<cfg>    — assembled by Makefile.flags.mk
+#   LDLIBS_<cfg>     — assembled by Makefile.flags.mk
+# -------------------------
+
+DP_PATH     ?= cpp/data_parallel
+HYBRID_PATH ?= cpp/hybrid_parallel
+
+# Capture the system makefile path at include time, before any recursion.
+# $(firstword $(MAKEFILE_LIST)) is the outermost file (e.g. Makefile.ALPS)
+# only when evaluated at the top level — store it now.
+_SYSTEM_MK := $(firstword $(MAKEFILE_LIST))
+
+# -------------------------
+# Top-level targets
+# -------------------------
+all: $(CONFIGS)
+	@echo ""
+	@echo "========================================================"
+	@echo "  Build complete for all configs: $(CONFIGS)"
+	@echo "========================================================"
+
+# Each config re-invokes make with the same system makefile,
+# plus CONFIG set so the build rules below activate.
+$(CONFIGS):
+	@$(MAKE) --no-print-directory -f $(_SYSTEM_MK) _build CONFIG=$@
+
+# -------------------------
+# Actual build (invoked recursively with CONFIG set)
+# -------------------------
+ifdef CONFIG
+
+BUILD_DIR := bin/$(CONFIG)
+
+_CXX      := $(or $(CXX_$(CONFIG)),$(CXX))
+_CXXFLAGS := $(CXXFLAGS_$(CONFIG))
+_LDFLAGS  := $(LDFLAGS_$(CONFIG))
+_LDLIBS   := $(LDLIBS_$(CONFIG))
+
+DP_BINS := \
+    $(BUILD_DIR)/$(DP_PATH)/dp \
+    $(BUILD_DIR)/$(DP_PATH)/fsdp \
+    $(BUILD_DIR)/$(DP_PATH)/dp_loop \
+    $(BUILD_DIR)/$(DP_PATH)/fsdp_loop
+
+HYBRID_BINS := \
+    $(BUILD_DIR)/$(HYBRID_PATH)/hybrid_2d \
+    $(BUILD_DIR)/$(HYBRID_PATH)/hybrid_3d \
+    $(BUILD_DIR)/$(HYBRID_PATH)/hybrid_3d_moe \
+    $(BUILD_DIR)/$(HYBRID_PATH)/hybrid_2d_loop \
+    $(BUILD_DIR)/$(HYBRID_PATH)/hybrid_3d_loop \
+    $(BUILD_DIR)/$(HYBRID_PATH)/hybrid_3d_moe_loop
+
+_build: $(DP_BINS) $(HYBRID_BINS)
+	@echo ""
+	@echo "--------------------------------------------------------"
+	@echo "  Config:   $(CONFIG)"
+	@echo "  Compiler: $(_CXX)"
+	@echo "  Backend:  $(BACKEND_$(CONFIG))"
+	@echo "  Output:   $(BUILD_DIR)/"
+	@echo ""
+	@echo "  Paths used:"
+	@$(if $(CUDA_HOME),          echo "    CUDA_HOME            = $(CUDA_HOME)")
+	@$(if $(NCCL_HOME),          echo "    NCCL_HOME            = $(NCCL_HOME)")
+	@$(if $(ROCM_HOME),          echo "    ROCM_HOME            = $(ROCM_HOME)")
+	@$(if $(RCCL_HOME),          echo "    RCCL_HOME            = $(RCCL_HOME)")
+	@$(if $(ONECCL_HOME),        echo "    ONECCL_HOME          = $(ONECCL_HOME)")
+	@$(if $(MPI_HOME),           echo "    MPI_HOME             = $(MPI_HOME)")
+	@$(if $(CCUTILS_INCLUDE),    echo "    CCUTILS_INCLUDE      = $(CCUTILS_INCLUDE)")
+	@$(if $(ENERGY_PROFILER_HOME),echo "   ENERGY_PROFILER_HOME = $(ENERGY_PROFILER_HOME)")
+	@echo ""
+	@echo "  CXXFLAGS: $(_CXXFLAGS)"
+	@echo "  LDFLAGS:  $(_LDFLAGS)"
+	@echo "  LDLIBS:   $(_LDLIBS)"
+	@echo "--------------------------------------------------------"
+
+# -- Build rules --
+# Loop variants compile the same .cpp as the base binary, with -DPROXY_LOOP added.
+# A static pattern rule is used so make looks for dp.cpp when building dp_loop,
+# rather than a nonexistent dp_loop.cpp.
+
+DP_LOOP_BINS    := $(filter %_loop,$(DP_BINS))
+DP_BASE_BINS    := $(filter-out %_loop,$(DP_BINS))
+HYBRID_LOOP_BINS := $(filter %_loop,$(HYBRID_BINS))
+HYBRID_BASE_BINS := $(filter-out %_loop,$(HYBRID_BINS))
+
+# data_parallel loop: strip _loop suffix to find source
+$(DP_LOOP_BINS): $(BUILD_DIR)/$(DP_PATH)/%_loop: $(DP_PATH)/%.cpp | $(BUILD_DIR)/$(DP_PATH)
+	$(_CXX) $(_CXXFLAGS) -DPROXY_LOOP -o $@ $< $(_LDFLAGS) $(_LDLIBS)
+
+# data_parallel standard
+$(DP_BASE_BINS): $(BUILD_DIR)/$(DP_PATH)/%: $(DP_PATH)/%.cpp | $(BUILD_DIR)/$(DP_PATH)
+	$(_CXX) $(_CXXFLAGS) -o $@ $< $(_LDFLAGS) $(_LDLIBS)
+
+# hybrid_parallel loop: strip _loop suffix to find source
+$(HYBRID_LOOP_BINS): $(BUILD_DIR)/$(HYBRID_PATH)/%_loop: $(HYBRID_PATH)/%.cpp | $(BUILD_DIR)/$(HYBRID_PATH)
+	$(_CXX) $(_CXXFLAGS) -DPROXY_LOOP -o $@ $< $(_LDFLAGS) $(_LDLIBS)
+
+# hybrid_parallel standard
+$(HYBRID_BASE_BINS): $(BUILD_DIR)/$(HYBRID_PATH)/%: $(HYBRID_PATH)/%.cpp | $(BUILD_DIR)/$(HYBRID_PATH)
+	$(_CXX) $(_CXXFLAGS) -o $@ $< $(_LDFLAGS) $(_LDLIBS)
+
+# -- Output directory creation --
+$(BUILD_DIR)/$(DP_PATH) $(BUILD_DIR)/$(HYBRID_PATH):
+	mkdir -p $@
+
+endif # CONFIG
+
+# -------------------------
+# Clean
+# -------------------------
+clean:
+	rm -rf bin/
+
+.PHONY: all clean _build $(CONFIGS)
