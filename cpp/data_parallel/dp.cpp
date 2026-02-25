@@ -297,13 +297,13 @@ int main(int argc, char* argv[]) {
     __timer_vals_barrier.erase(__timer_vals_barrier.begin(), __timer_vals_barrier.begin() + WARM_UP); // remove the warm-up barriers
     CCUTILS_SECTION_JSON_PUT(dp, "barrier_time", __timer_vals_barrier);
     CCUTILS_SECTION_JSON_PUT(dp, "hostname", host_name);
-    #endif
 	
     #ifdef PROXY_ENERGY_PROFILING
     CCUTILS_SECTION_JSON_PUT(dp, "energy_consumed", energy_vals);
     #endif
 
     CCUTILS_MPI_SECTION_END(dp);
+    #endif
 	
     #ifdef PROXY_ENABLE_CLL
     ncclCommDestroy(world_comm);
