@@ -60,6 +60,28 @@ def bytes_per_element(dtype_str):
     else:
         raise ValueError(f"Unsupported dtype: {dtype_str}")
 
+def count_non_expert_params(model, model_name):
+    """
+    Count only non-expert parameters.
+    For MoE models, excludes expert MLP weights.
+    For regular models, counts all parameters.
+    """
+    non_expert_params = 0
+    
+    for name, param in model.named_parameters():
+        param_count = param.numel()
+        
+        # For Mixtral: skip expert parameters
+        if "mixtral" in model_name.lower():
+            # Skip parameters that are part of the expert MLPs
+            if "block_sparse_moe" in name and "experts" in name:
+                continue  # Skip expert params
+        
+        # Count everything else as non-expert
+        non_expert_params += param_count
+    
+    return non_expert_params
+
 # ------------------------------
 # Main
 # ------------------------------
@@ -117,10 +139,10 @@ if __name__ == "__main__":
     t_fwd  = t_attn + t_mlp
     t_bwd  = 2 * t_fwd
 
-    # Model parameter count
-    print("Loading model to count parameters...")
+    # Model parameter count - NON-EXPERT ONLY
+    print("Loading model to count non-expert parameters...")
     model = model_class.from_pretrained(hf_name, trust_remote_code=True)
-    model_size = sum(p.numel() for p in model.parameters())
+    non_expert_size = count_non_expert_params(model, args.model_name)
 
     # Output writing
     out_dir = os.path.expanduser("~/DLNetBench/model_stats")
@@ -130,7 +152,7 @@ if __name__ == "__main__":
     with open(out_file, "w+") as f:
         f.write(f"Forward_Flops:{int(total_fwd_flops)}\n")
         f.write(f"Backward_Flops:{int(2*total_fwd_flops)}\n")
-        f.write(f"Model_Size:{model_size}\n")
+        f.write(f"Model_Size:{non_expert_size}\n")
         f.write(f"Average_Forward_Time (us):{t_fwd*1e6:.2f}\n")
         f.write(f"Average_Backward_Time (us):{t_bwd*1e6:.2f}\n")
         f.write(f"Batch_size:{B}\n")
@@ -149,5 +171,6 @@ if __name__ == "__main__":
     print(f"Device: {DEVICE_NAME}")
     print(f"Precision: {dtype_str} ({s} bytes/element)")
     print(f"Batch Size: {B}, Seq Len: {N}")
+    print(f"Non-Expert Parameters: {non_expert_size:,}")
     print(f"Forward Pass Estimate: {t_fwd*1e6:.2f} us")
     print(f"{'='*60}\n")

@@ -156,6 +156,10 @@ std::map<std::string, uint64_t> get_model_stats(std::string filename){
     std::getline(file, line);
     uint64_t modelSize = std::stoull(extract_value(line));
 
+    // non expert size
+    std::getline(file, line);
+    uint64_t non_expert_size = std::stoull(extract_value(line));
+
     // Average Forward Time  (should be double, not uint64_t)
     std::getline(file, line);
     uint64_t avgForwardTime = std::stod(extract_value(line));
@@ -196,6 +200,7 @@ std::map<std::string, uint64_t> get_model_stats(std::string filename){
     model_stats["experts"] = experts;
     model_stats["sequenceLength"] = sequence_length;
     model_stats["embeddedDim"] = embedded_dim;
+    model_stats["nonExpertModelSize"] = non_expert_size;
     
     return model_stats;   
 }
