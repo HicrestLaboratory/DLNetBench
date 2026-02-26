@@ -217,7 +217,12 @@ int main(int argc, char* argv[]) {
     // DP all-reduce size (gradients for parameters in this stage)
     uint64_t dp_allreduce_size = total_model_size / num_stage;
     
+#ifdef PROXY_ENABLE_ONECCL
+    int provided;
+    MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided);
+#else
     MPI_Init(&argc, &argv);
+#endif
     MPI_Comm_size(MPI_COMM_WORLD, &world_size);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     
