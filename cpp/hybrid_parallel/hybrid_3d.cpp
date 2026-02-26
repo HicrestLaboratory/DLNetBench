@@ -206,6 +206,7 @@ int main(int argc, char* argv[]) {
     fs::path repo_path = get_dnnproxy_base_path(argc, argv, rank);
     fs::path file_path = repo_path / "model_stats" / (model_name + ".txt");
     std::string strip_model_name = model_name.substr(0, model_name.find_last_of('_'));
+    strip_model_name = strip_model_name.substr(0, strip_model_name.find_last_of('_'));
     fs::path model_architecture_path = repo_path / "models" / (strip_model_name + ".json");
 
     uint num_layers = count_layers(model_architecture_path);
