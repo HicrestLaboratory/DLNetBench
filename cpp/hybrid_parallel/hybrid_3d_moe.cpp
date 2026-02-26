@@ -71,6 +71,7 @@ CCUTILS_MPI_TIMER_DEF(runtime)
 CCUTILS_MPI_TIMER_DEF(pp_comm)
 CCUTILS_MPI_TIMER_DEF(dp_comm)
 CCUTILS_MPI_TIMER_DEF(ep_comm) 
+CCUTILS_MPI_TIMER_DEF(dp_ep_comm)
 
 /**
  * @brief Simulates one iteration of hybrid DP+PP+EP training using GPipe schedule.
@@ -90,6 +91,7 @@ CCUTILS_MPI_TIMER_DEF(ep_comm)
  * @param grad_ptr Pointer to gradient buffer for DP all-reduce
  * @param sum_grad_ptr Pointer to reduced gradient buffer
  * @param dp_allreduce_size Size of gradient buffer for DP all-reduce
+ * @param non_expert_size Size of non-expert parameters (for DP all-reduce inside a EP group)
  * @param fwd_send_buff Forward activation send buffer
  * @param fwd_recv_buff Forward activation receive buffer
  * @param bwd_send_buff Backward gradient send buffer
@@ -114,6 +116,7 @@ int run_data_pipe_expert_parallel(
     Tensor<_FLOAT, device>* grad_ptr,
     Tensor<_FLOAT, device>* sum_grad_ptr,
     uint64_t dp_allreduce_size,
+    uint64_t non_expert_size,                     
     Tensor<_FLOAT, device>* fwd_send_buff,
     Tensor<_FLOAT, device>* fwd_recv_buff,
     Tensor<_FLOAT, device>* bwd_send_buff,
@@ -190,8 +193,10 @@ int run_data_pipe_expert_parallel(
             CCUTILS_MPI_TIMER_STOP(ep_comm)
         }
     }
-    
-    // Data-parallel all-reduce for accumulated gradients
+    CCUTILS_MPI_TIMER_START(dp_ep_comm)
+    ep_communicator->Allreduce(grad_ptr->data, sum_grad_ptr->data, non_expert_size);
+    CCUTILS_MPI_TIMER_STOP(dp_ep_comm)
+
     CCUTILS_MPI_TIMER_START(dp_comm)
     dp_communicator->Allreduce(grad_ptr->data, sum_grad_ptr->data, dp_allreduce_size);
     CCUTILS_MPI_TIMER_STOP(dp_comm)
@@ -239,6 +244,8 @@ int main(int argc, char* argv[]) {
     uint64_t total_model_size = model_stats["modelSize"]; // number of parameters
     uint64_t sequence_length = model_stats["sequenceLength"]; // sequence length
     uint64_t embedded_dim = model_stats["embeddedDim"]; // hidden dimension size
+    uint64_t non_expert_model_size = model_stats["nonExpertModelSize"]; // size of non-expert parameters
+    uint64_t expert_params = total_model_size - non_expert_model_size;
 
     float sample_size_bytes = sequence_length * embedded_dim * sizeof(_FLOAT);
     
@@ -321,9 +328,9 @@ int main(int argc, char* argv[]) {
     int layers_per_stage = num_layers/num_stage;
     uint64_t ep_alltoall_size = (tokens_per_microbatch * top_k * embedded_dim) / (num_expert_shards);
     
-    // DP all-reduce size (gradients for parameters in this stage, divided by EP shards)
-    // In MoE, each expert shard has its own copy of expert parameters
-    uint64_t dp_allreduce_size = total_model_size / (num_stage * num_expert_shards);
+    uint64_t non_expert_size = non_expert_model_size / num_stage;
+    uint64_t expert_size = (expert_params / num_stage) / num_expert_shards;
+    uint64_t dp_allreduce_size = non_expert_size + expert_size;
     
 #if defined(PROXY_ENABLE_CUDA)
     int num_gpus;
@@ -461,7 +468,7 @@ int main(int argc, char* argv[]) {
     for(int wmp = 0; wmp < WARM_UP; wmp++){
         run_data_pipe_expert_parallel(num_microbatches, stage_id, num_stage, layers_per_stage, pipe_msg_size,
                               fwd_rt_per_microbatch, bwd_rt_per_microbatch,
-                              grad_ptr, sum_grad_ptr, dp_allreduce_size,
+                              grad_ptr, sum_grad_ptr, dp_allreduce_size, non_expert_size,
                               fwd_send_buff, fwd_recv_buff, bwd_send_buff, bwd_recv_buff,
                               ep_send_buffer, ep_recv_buffer, ep_alltoall_size, num_experts,
                               dp_communicator, pp_communicator, ep_communicator);
@@ -477,7 +484,7 @@ int main(int argc, char* argv[]) {
     while(true){
         run_data_pipe_expert_parallel(num_microbatches, stage_id, num_stage, layers_per_stage, pipe_msg_size,
                               fwd_rt_per_microbatch, bwd_rt_per_microbatch,
-                              grad_ptr, sum_grad_ptr, dp_allreduce_size,
+                              grad_ptr, sum_grad_ptr, dp_allreduce_size, non_expert_size,
                               fwd_send_buff, fwd_recv_buff, bwd_send_buff, bwd_recv_buff,
                               ep_send_buffer, ep_recv_buffer, ep_alltoall_size, num_experts,
                               dp_communicator, pp_communicator, ep_communicator);
@@ -496,7 +503,7 @@ int main(int argc, char* argv[]) {
         
         run_data_pipe_expert_parallel(num_microbatches, stage_id, num_stage, layers_per_stage, pipe_msg_size,
                               fwd_rt_per_microbatch, bwd_rt_per_microbatch,
-                              grad_ptr, sum_grad_ptr, dp_allreduce_size,
+                              grad_ptr, sum_grad_ptr, dp_allreduce_size, non_expert_size,
                               fwd_send_buff, fwd_recv_buff, bwd_send_buff, bwd_recv_buff,
                               ep_send_buffer, ep_recv_buffer, ep_alltoall_size, num_experts,
                               dp_communicator, pp_communicator, ep_communicator);
@@ -541,10 +548,12 @@ int main(int argc, char* argv[]) {
     __timer_vals_pp_comm.erase(__timer_vals_pp_comm.begin(), __timer_vals_pp_comm.begin() + WARM_UP);
     __timer_vals_dp_comm.erase(__timer_vals_dp_comm.begin(), __timer_vals_dp_comm.begin() + WARM_UP);
     __timer_vals_ep_comm.erase(__timer_vals_ep_comm.begin(), __timer_vals_ep_comm.begin() + WARM_UP);
+    __timer_vals_dp_ep_comm.erase(__timer_vals_dp_ep_comm.begin(), __timer_vals_dp_ep_comm.begin() + WARM_UP);
     
     CCUTILS_SECTION_JSON_PUT(dp_pp_ep, "pp_comm_time", __timer_vals_pp_comm);
     CCUTILS_SECTION_JSON_PUT(dp_pp_ep, "dp_comm_time", __timer_vals_dp_comm);
     CCUTILS_SECTION_JSON_PUT(dp_pp_ep, "ep_comm_time", __timer_vals_ep_comm);
+    CCUTILS_SECTION_JSON_PUT(dp_pp_ep, "dp_ep_comm_time", __timer_vals_dp_ep_comm);
     CCUTILS_SECTION_JSON_PUT(dp_pp_ep, "hostname", host_name);
     CCUTILS_SECTION_JSON_PUT(dp_pp_ep, "stage_id", stage_id);
     CCUTILS_SECTION_JSON_PUT(dp_pp_ep, "ep_id", ep_id);
