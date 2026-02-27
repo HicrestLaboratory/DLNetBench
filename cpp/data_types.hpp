@@ -46,7 +46,7 @@
         using _FLOAT = float;
     #endif
 
-    #ifdef PROXY_ENABLE_NCCL
+    #ifdef PROXY_ENABLE_CCL
         #define NCCL_FLOAT_TYPE ncclBfloat16
     #endif
 
@@ -69,7 +69,7 @@
         #error "FP8 requested but the platform does not support it."
     #endif
 
-    #ifdef PROXY_ENABLE_NCCL
+    #ifdef PROXY_ENABLE_CCL
         #define NCCL_FLOAT_TYPE ncclFloat8  // se NCCL supporta FP8
     #endif
 
