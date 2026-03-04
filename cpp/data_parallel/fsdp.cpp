@@ -24,10 +24,6 @@ namespace fs = std::filesystem;
 
 #include "../netcommunicators.hpp"
 
-#ifdef PROXY_ENERGY_PROFILING
-#include <profiler/power_profiler.hpp>
-#endif
-
 #ifdef PROXY_ENABLE_ONECCL
 #include <oneapi/ccl.hpp>
 #include <CL/sycl.hpp>
@@ -177,7 +173,8 @@ static char default_devices[] = "";
 #define OPTIONAL_ARGS                                                                           \
     OPTIONAL_INT_ARG(warmup, WARM_UP, "-w", "warmups", "Number of warm-up iterations")          \
     OPTIONAL_INT_ARG(runs, RUNS, "-r", "runs", "Number of iterations to run")                   \
-    OPTIONAL_STRING_ARG(devices, default_devices, "-d", "devices", "Comma-separated list of devices")  
+    OPTIONAL_STRING_ARG(devices, default_devices, "-d", "devices", "Comma-separated list of devices")  \
+    OPTIONAL_INT_ARG(min_exectime, 0, "-m", "min_exectime", "Minimum total execution time in seconds (overrides runs)")
 
 #define BOOLEAN_ARGS \
     BOOLEAN_ARG(help, "-h", "Show help")
@@ -358,12 +355,21 @@ int main(int argc, char* argv[]) {
     float fwd_rt_whole_unit = (float)fwd_rt_whole_model / num_units;
     float bwd_rt_whole_unit = (float)bwd_rt_whole_model / num_units;
 
-    for(int i = 0; i < warmup; i++)
+    std::vector<float> warmup_times;
+    for(int i = 0; i < warmup; i++){
+        float start_time = MPI_Wtime();
         run_fsdp(shard_params, allgather_buf, allreduce_params,
                  fwd_rt_whole_unit, bwd_rt_whole_unit,
                  num_units, sharding_factor, max_params_per_shard,
                  num_replicas, unit_comm_proxy, allreduce_comm_proxy);
+        float end_time = MPI_Wtime();
+        warmup_times.push_back(end_time - start_time);
+    }
 
+    if (args.min_exectime > 0) {
+        runs = estimate_runs(warmup_times, args.min_exectime);
+        CCUTILS_MPI_PRINT_ONCE(std::cout << "Estimated runs based on warm-up times to meet minimum execution time: " << runs << std::endl;)
+    }
     
     #ifdef PROXY_LOOP
     while(true){
@@ -403,7 +409,6 @@ int main(int argc, char* argv[]) {
     CCUTILS_SECTION_JSON_PUT(fsdp, "allgather_wait_bwd", __timer_vals_allgather_wait_bwd)
     CCUTILS_SECTION_JSON_PUT(fsdp, "reduce_scatter", __timer_vals_reduce_scatter)
     CCUTILS_SECTION_JSON_PUT(fsdp, "barrier", __timer_vals_barrier)
-    // CCUTILS_SECTION_JSON_PUT(fsdp, "energy_consumed", energy_vals);
     CCUTILS_SECTION_JSON_PUT(fsdp, "hostname", host_name);
     CCUTILS_SECTION_JSON_PUT(fsdp, "rank", rank);
 

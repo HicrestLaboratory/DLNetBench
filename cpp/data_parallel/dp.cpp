@@ -35,10 +35,6 @@ using nlohmann::json;
     #include <ccutils/cuda/cuda_macros.hpp>
 #endif
 
-#ifdef PROXY_ENERGY_PROFILING
-#include <profiler/power_profiler.hpp>
-#endif
-
 #ifdef PROXY_ENABLE_ONECCL
 #include <oneapi/ccl.hpp>
 #include <CL/sycl.hpp>
@@ -121,7 +117,8 @@ static char default_devices[] = "";
 #define OPTIONAL_ARGS                                                                           \
     OPTIONAL_INT_ARG(warmup, WARM_UP, "-w", "warmups", "Number of warm-up iterations")          \
     OPTIONAL_INT_ARG(runs, RUNS, "-r", "runs", "Number of iterations to run")                   \
-    OPTIONAL_STRING_ARG(devices, default_devices, "-d", "devices", "Comma-separated list of devices")  
+    OPTIONAL_STRING_ARG(devices, default_devices, "-d", "devices", "Comma-separated list of devices")  \
+    OPTIONAL_INT_ARG(min_exectime, 0, "-m", "min_exectime", "Minimum total execution time in seconds (overrides runs)")
 
 #define BOOLEAN_ARGS \
     BOOLEAN_ARG(help, "-h", "Show help")
@@ -237,23 +234,20 @@ int main(int argc, char* argv[]) {
     MPI_Barrier(MPI_COMM_WORLD);
 
     //warmup
-    std::vector<float> energy_vals;
+    std::vector<float> warmup_times;
     for(int wmp = 0; wmp < warmup; wmp++){
+        float start_time = MPI_Wtime();
         run_data_parallel(grad_ptrs, sum_grad_ptrs, num_buckets, params_per_bucket,
                          fwd_rt_whole_model, bwd_rt_per_B, communicator);
+        float end_time = MPI_Wtime();
+        warmup_times.push_back(end_time - start_time);
     }
     std::string sub_folder = model_name + "_dp";
 
-    // Add here the start and stop for the energy profiler
-    #ifdef PROXY_ENABLE_NCCL
-    std::string algo = getenv("NCCL_ALGO") ? getenv("NCCL_ALGO") : "default_algo";
-    std::string proto = getenv("NCCL_PROTO") ? getenv("NCCL_PROTO") : "default_proto";
-    std::string channels = getenv("NCCL_MAX_CTAS") ? getenv("NCCL_MAX_CTAS") : "default_ctas";
-    std::string threads = getenv("NCCL_NTHREADS") ? getenv("NCCL_NTHREADS") : "default_threads";
-
-    sub_folder += "_nccl_algo_" + algo + "_proto_" + proto + "_ctas_" + channels + "_threads_" + threads + "/";
-    #endif
-    std::string base_folder_path = "logs_" + std::to_string(world_size) + "/";
+    if (args.min_exectime > 0) {
+        runs = estimate_runs(warmup_times, args.min_exectime);
+        CCUTILS_MPI_PRINT_ONCE(std::cout << "Estimated runs based on warm-up times to meet minimum execution time: " << runs << std::endl;)
+    }
 
     #ifdef PROXY_LOOP
     while(true){
@@ -262,23 +256,9 @@ int main(int argc, char* argv[]) {
     }
     #else
     for(int iter = 0; iter < runs; iter++){        
-#ifdef PROXY_ENERGY_PROFILING
-        std::string power_file = base_folder_path + sub_folder + "power_dp_rank_" + std::to_string(rank) + "run_" + std::to_string(iter) + ".csv";
-        PowerProfiler powerProf(rank % num_gpus, POWER_SAMPLING_RATE_MS, power_file);
-        #endif
         CCUTILS_MPI_TIMER_START(runtime)
-        
-        #ifdef PROXY_ENERGY_PROFILING
-        powerProf.start();
-        #endif
         run_data_parallel(grad_ptrs, sum_grad_ptrs, num_buckets, params_per_bucket,
                          fwd_rt_whole_model, bwd_rt_per_B, communicator);
-        
-        #ifdef PROXY_ENERGY_PROFILING
-        powerProf.stop();
-        float energy_consumed = powerProf.get_device_energy();
-        energy_vals.push_back(energy_consumed);
-        #endif
         CCUTILS_MPI_TIMER_STOP(runtime)
     }
 
@@ -311,10 +291,6 @@ int main(int argc, char* argv[]) {
     __timer_vals_barrier.erase(__timer_vals_barrier.begin(), __timer_vals_barrier.begin() + WARM_UP); // remove the warm-up barriers
     CCUTILS_SECTION_JSON_PUT(dp, "barrier_time", __timer_vals_barrier);
     CCUTILS_SECTION_JSON_PUT(dp, "hostname", host_name);
-	
-    #ifdef PROXY_ENERGY_PROFILING
-    CCUTILS_SECTION_JSON_PUT(dp, "energy_consumed", energy_vals);
-    #endif
 
     CCUTILS_MPI_SECTION_END(dp);
     #endif

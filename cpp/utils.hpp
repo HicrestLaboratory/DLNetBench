@@ -116,6 +116,23 @@ inline int set_local_device(MPI_Comm global_comm, const char* devices_str){
     return device_index;
 }
 
+// consider the warm-up time and adjust the number of runs accordingly to meet the minimum execution time requirement
+// avoid the first 2 warm-up iterations
+int estimate_runs(std::vector<float>& warmup_times, uint64_t min_exectime){
+    float warmup_time = 0;
+    for (size_t i = 2; i < warmup_times.size(); i++) warmup_time += warmup_times[i];
+    float avg_time_per_run = warmup_time / (warmup_times.size() - 2);
+    
+    float global_avg_time;
+    MPI_Allreduce(&avg_time_per_run, &global_avg_time, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+    global_avg_time /= warmup_times.size();
+    int estimated_runs = static_cast<int>(std::ceil(min_exectime / global_avg_time));
+
+    return estimated_runs;
+
+}
+
+
 /**
  * @brief Computes the average and standard deviation of a list of message sizes.
  *

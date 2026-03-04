@@ -179,7 +179,8 @@ static char default_devices[] = "";
 #define OPTIONAL_ARGS                                                                           \
     OPTIONAL_INT_ARG(warmup, WARM_UP, "-w", "warmups", "Number of warm-up iterations")          \
     OPTIONAL_INT_ARG(runs, RUNS, "-r", "runs", "Number of iterations to run")                   \
-    OPTIONAL_STRING_ARG(devices, default_devices, "-d", "devices", "Comma-separated list of devices")  
+    OPTIONAL_STRING_ARG(devices, default_devices, "-d", "devices", "Comma-separated list of devices")  \
+    OPTIONAL_INT_ARG(min_exectime, 0, "-m", "min_exectime", "Minimum total execution time in seconds (overrides runs)")
 
 #define BOOLEAN_ARGS \
     BOOLEAN_ARG(help, "-h", "Show help")
@@ -373,14 +374,23 @@ int main(int argc, char* argv[]) {
     MPI_Barrier(MPI_COMM_WORLD);
     
     // Warmup
-    std::vector<float> energy_vals;
+    std::vector<float> warmup_times;
     for(int wmp = 0; wmp < warmup; wmp++){
+        float start_time = MPI_Wtime();
         run_data_pipe_parallel(num_microbatches, stage_id, num_stage, pipe_msg_size,
                               fwd_rt_per_microbatch, bwd_rt_per_microbatch,
                               grad_ptr, sum_grad_ptr, dp_allreduce_size,
                               fwd_send_buff, fwd_recv_buff, bwd_send_buff, bwd_recv_buff,
                               dp_communicator, pp_communicator);
+        float end_time = MPI_Wtime();
+        warmup_times.push_back(end_time - start_time);
     }
+
+    if (args.min_exectime > 0) {
+        runs = estimate_runs(warmup_times, args.min_exectime);
+        CCUTILS_MPI_PRINT_ONCE(std::cout << "Estimated runs based on warm-up times to meet minimum execution time: " << runs << std::endl;)
+    }
+
     #ifdef PROXY_LOOP
     while(true){
         run_data_pipe_parallel(num_microbatches, stage_id, num_stage, pipe_msg_size,
