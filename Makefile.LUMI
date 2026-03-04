@@ -1,0 +1,46 @@
+# -------------------------
+# Makefile.LUMI
+# Optimized for LUMI-G (AMD MI250X / ROCm / Cray MPICH)
+# -------------------------
+
+# --- Compiler Selection ---
+# On LUMI, 'CC' is the Cray wrapper for C++. 
+# It automatically links MPI (cray-mpich) and handles HIP source files.
+CXX := hipcc
+
+# -- System paths (Configured for LUMI ROCm/RCCL) --
+# ROCM_PATH is automatically set by the 'rocm' module on LUMI
+ROCM_HOME := $(or $(ROCM_PATH),$(EBROOTROCM),/opt/rocm-6.3.4)
+HIP_HOME  := $(ROCM_HOME)
+RCCL_HOME := $(ROCM_HOME)
+
+# Cray MPICH directory (handled by LUMI modules, but defined here for template parity)
+MPI_HOME  := $(MPICH_DIR)
+MPIHIP_HOME := $(MPI_HOME)
+
+# --- Base Compiler Flags ---
+# We inject these here so Makefile.flags.mk and Makefile.common inherit them.
+# -x hip: Tells the Cray compiler to treat .cpp files as HIP source code.
+# --offload-arch=gfx90a: Architecture flag for LUMI-G's MI250X.
+
+HIP_ARCH := gfx90a
+
+# -------------------------------------------------------
+# Config: rccl
+#   HIP buffers + RCCL collectives
+# -------------------------------------------------------
+CONFIGS += rccl
+BACKEND_rccl := rccl
+
+# -------------------------------------------------------
+# Config: mpi_gpu_hip
+#   HIP buffers, MPI collectives only (no RCCL)
+# -------------------------------------------------------
+CONFIGS += mpi_gpu_hip
+BACKEND_mpi_gpu_hip := mpi_gpu_hip
+
+# -------------------------------------------------------
+# Includes
+# -------------------------------------------------------
+include Makefile.flags.mk
+include Makefile.common
