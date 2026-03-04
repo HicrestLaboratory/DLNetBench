@@ -59,8 +59,8 @@ constexpr Device device = Device::CPU;
 #endif
 
 // Default values
-#define WARM_UP 4
-#define RUNS 1
+#define WARM_UP 3
+#define RUNS 5
 #define POWER_SAMPLING_RATE_MS 5
 
 CCUTILS_MPI_TIMER_DEF(runtime)
@@ -521,6 +521,30 @@ int main(int argc, char* argv[]) {
                               dp_communicator, pp_communicator, ep_communicator);
         
         CCUTILS_MPI_TIMER_STOP(runtime)
+        if(stage_id > 0 && stage_id < num_stage-1){
+            std::vector<float> merged_pp;
+            // We want 2 entries per microbatch: [Fwd_Comm, Bwd_Comm]
+            merged_pp.reserve(num_microbatches * 2);
+
+            int fwd_offset = 0;
+            int bwd_offset = num_microbatches * 2; // Bwd starts after all Fwd timers
+
+            for(int i = 0; i < num_microbatches; i++){
+                // Merge Forward: (Recv + Send)
+                float fwd_comm = __timer_vals_pp_comm[fwd_offset + i*2] + 
+                                __timer_vals_pp_comm[fwd_offset + i*2 + 1];
+                merged_pp.push_back(fwd_comm);
+            }
+            
+            for(int i = 0; i < num_microbatches; i++){
+                // Merge Backward: (Recv + Send)
+                float bwd_comm = __timer_vals_pp_comm[bwd_offset + i*2] + 
+                                __timer_vals_pp_comm[bwd_offset + i*2 + 1];
+                merged_pp.push_back(bwd_comm);
+            }
+
+            __timer_vals_pp_comm = std::move(merged_pp);
+        }
     }
     
     char host_name[MPI_MAX_PROCESSOR_NAME];

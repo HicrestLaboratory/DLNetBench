@@ -68,8 +68,8 @@ Proxy_CommType world_comm;
 
 // Default values
 #define NUM_B 10
-#define WARM_UP 4
-#define RUNS 1
+#define WARM_UP 3
+#define RUNS 5
 #define POWER_SAMPLING_RATE_MS 5
 
 CCUTILS_MPI_TIMER_DEF(runtime)

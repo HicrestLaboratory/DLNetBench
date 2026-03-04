@@ -70,8 +70,8 @@ CCUTILS_MPI_TIMER_DEF(barrier)
 CCUTILS_MPI_TIMER_DEF(runtime)
 
 //default values
-#define WARM_UP 4
-#define RUNS 1
+#define WARM_UP 3
+#define RUNS 5
 #define POWER_SAMPLING_RATE_MS 5
 
 void run_fsdp(Tensor<_FLOAT, device>** shard_params,

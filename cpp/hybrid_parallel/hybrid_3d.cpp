@@ -4,7 +4,6 @@
  *              with hybrid data, pipeline, and tensor parallelism (DP+PP+TP)
  * 
  *********************************************************************/ 
-
 #include <mpi.h>
 #include <unistd.h>
 #include <stdio.h>
@@ -59,8 +58,8 @@ constexpr Device device = Device::CPU;
 #endif
 
 // Default values
-#define WARM_UP 4
-#define RUNS 1
+#define WARM_UP 3
+#define RUNS 3
 #define POWER_SAMPLING_RATE_MS 5
 
 CCUTILS_MPI_TIMER_DEF(runtime)
@@ -116,25 +115,30 @@ int run_data_pipe_tensor_parallel(
     // GPipe Pipeline Schedule
     // Forward pass for all micro-batches
     for(int i = 0; i < num_microbatches; i++){
-        CCUTILS_MPI_TIMER_START(pp_comm)
         if(stage_id == 0){
             // First stage: compute then send
             usleep(fwd_rt);
+            CCUTILS_MPI_TIMER_START(pp_comm)
             pp_communicator->send(fwd_send_buff->data, pipe_msg_size, stage_id+1);
+            CCUTILS_MPI_TIMER_STOP(pp_comm)
         } 
         else if(stage_id == num_stage-1){
             // Last stage: receive then compute
+            CCUTILS_MPI_TIMER_START(pp_comm)
             pp_communicator->recv(fwd_recv_buff->data, pipe_msg_size, stage_id-1);
+            CCUTILS_MPI_TIMER_STOP(pp_comm)
             usleep(fwd_rt);
         } 
         else{
             // Middle stages: receive, compute, send
+            CCUTILS_MPI_TIMER_START(pp_comm)
             pp_communicator->recv(fwd_recv_buff->data, pipe_msg_size, stage_id-1);
+            CCUTILS_MPI_TIMER_STOP(pp_comm)
             usleep(fwd_rt);
+            CCUTILS_MPI_TIMER_START(pp_comm)
             pp_communicator->send(fwd_send_buff->data, pipe_msg_size, stage_id+1);
+            CCUTILS_MPI_TIMER_STOP(pp_comm)
         }
-        CCUTILS_MPI_TIMER_STOP(pp_comm)
-
         // Tensor parallel communication during forward pass
         // 2 all-reduces per microbatch (column-parallel and row-parallel)
         for(int tp_iter = 0; tp_iter < 2; tp_iter++){
@@ -146,25 +150,30 @@ int run_data_pipe_tensor_parallel(
     
     // Backward pass for all micro-batches
     for(int i = 0; i < num_microbatches; i++){
-        CCUTILS_MPI_TIMER_START(pp_comm)
         if(stage_id == 0){
             // First stage: receive then compute
+            CCUTILS_MPI_TIMER_START(pp_comm)
             pp_communicator->recv(bwd_recv_buff->data, pipe_msg_size, stage_id+1);
+            CCUTILS_MPI_TIMER_STOP(pp_comm)
             usleep(bwd_rt);
         } 
         else if(stage_id == num_stage-1){
             // Last stage: compute then send
             usleep(bwd_rt);
+            CCUTILS_MPI_TIMER_START(pp_comm)
             pp_communicator->send(bwd_send_buff->data, pipe_msg_size, stage_id-1);
+            CCUTILS_MPI_TIMER_STOP(pp_comm)
         } 
         else{
             // Middle stages: receive, compute, send
+            CCUTILS_MPI_TIMER_START(pp_comm)
             pp_communicator->recv(bwd_recv_buff->data, pipe_msg_size, stage_id+1);
+            CCUTILS_MPI_TIMER_STOP(pp_comm)
             usleep(bwd_rt);
+            CCUTILS_MPI_TIMER_START(pp_comm)
             pp_communicator->send(bwd_send_buff->data, pipe_msg_size, stage_id-1);
-        }
-        CCUTILS_MPI_TIMER_STOP(pp_comm)
-        
+            CCUTILS_MPI_TIMER_STOP(pp_comm)
+        }        
         // Tensor parallel communication during backward pass
         // 2 all-reduces per microbatch
         for(int tp_iter = 0; tp_iter < 2; tp_iter++){
@@ -470,6 +479,30 @@ int main(int argc, char* argv[]) {
                               dp_communicator, pp_communicator, tp_communicator);
         
         CCUTILS_MPI_TIMER_STOP(runtime)
+        if(stage_id > 0 && stage_id < num_stage-1){
+            std::vector<float> merged_pp;
+            // We want 2 entries per microbatch: [Fwd_Comm, Bwd_Comm]
+            merged_pp.reserve(num_microbatches * 2);
+
+            int fwd_offset = 0;
+            int bwd_offset = num_microbatches * 2; // Bwd starts after all Fwd timers
+
+            for(int i = 0; i < num_microbatches; i++){
+                // Merge Forward: (Recv + Send)
+                float fwd_comm = __timer_vals_pp_comm[fwd_offset + i*2] + 
+                                __timer_vals_pp_comm[fwd_offset + i*2 + 1];
+                merged_pp.push_back(fwd_comm);
+            }
+            
+            for(int i = 0; i < num_microbatches; i++){
+                // Merge Backward: (Recv + Send)
+                float bwd_comm = __timer_vals_pp_comm[bwd_offset + i*2] + 
+                                __timer_vals_pp_comm[bwd_offset + i*2 + 1];
+                merged_pp.push_back(bwd_comm);
+            }
+
+            __timer_vals_pp_comm = std::move(merged_pp);
+        }
     }
     
     char host_name[MPI_MAX_PROCESSOR_NAME];

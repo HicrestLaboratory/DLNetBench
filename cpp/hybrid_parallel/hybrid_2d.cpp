@@ -59,8 +59,8 @@ constexpr Device device = Device::CPU;
 #endif
 
 // Default values
-#define WARM_UP 4
-#define RUNS 1
+#define WARM_UP 3
+#define RUNS 5
 #define POWER_SAMPLING_RATE_MS 5
 
 CCUTILS_MPI_TIMER_DEF(runtime)
@@ -401,23 +401,31 @@ int main(int argc, char* argv[]) {
                               grad_ptr, sum_grad_ptr, dp_allreduce_size,
                               fwd_send_buff, fwd_recv_buff, bwd_send_buff, bwd_recv_buff,
                               dp_communicator, pp_communicator);
-
-        // Only for middle stages: merge recv+send into a single pp_comm value per microbatch
+        CCUTILS_MPI_TIMER_STOP(runtime)
         if(stage_id > 0 && stage_id < num_stage-1){
             std::vector<float> merged_pp;
-            merged_pp.reserve(num_microbatches);
+            // We want 2 entries per microbatch: [Fwd_Comm, Bwd_Comm]
+            merged_pp.reserve(num_microbatches * 2);
+
+            int fwd_offset = 0;
+            int bwd_offset = num_microbatches * 2; // Bwd starts after all Fwd timers
 
             for(int i = 0; i < num_microbatches; i++){
-                // Each microbatch has two entries (recv + send)
-                float recv_time = __timer_vals_pp_comm[i*2];
-                float send_time = __timer_vals_pp_comm[i*2 + 1];
-                merged_pp.push_back(recv_time + send_time);
+                // Merge Forward: (Recv + Send)
+                float fwd_comm = __timer_vals_pp_comm[fwd_offset + i*2] + 
+                                __timer_vals_pp_comm[fwd_offset + i*2 + 1];
+                merged_pp.push_back(fwd_comm);
+            }
+            
+            for(int i = 0; i < num_microbatches; i++){
+                // Merge Backward: (Recv + Send)
+                float bwd_comm = __timer_vals_pp_comm[bwd_offset + i*2] + 
+                                __timer_vals_pp_comm[bwd_offset + i*2 + 1];
+                merged_pp.push_back(bwd_comm);
             }
 
-            // Replace original pp_comm vector with the merged one
             __timer_vals_pp_comm = std::move(merged_pp);
         }
-        CCUTILS_MPI_TIMER_STOP(runtime)
     }
     
     char host_name[MPI_MAX_PROCESSOR_NAME];
