@@ -242,7 +242,6 @@ int main(int argc, char* argv[]) {
         float end_time = MPI_Wtime();
         warmup_times.push_back(end_time - start_time);
     }
-    std::string sub_folder = model_name + "_dp";
 
     if (args.min_exectime > 0) {
         runs = estimate_runs(warmup_times, args.min_exectime);
@@ -288,7 +287,6 @@ int main(int argc, char* argv[]) {
 
     //erase warm-up elemements
     CCUTILS_SECTION_JSON_PUT(dp, "runtimes", __timer_vals_runtime);
-    __timer_vals_barrier.erase(__timer_vals_barrier.begin(), __timer_vals_barrier.begin() + WARM_UP); // remove the warm-up barriers
     CCUTILS_SECTION_JSON_PUT(dp, "barrier_time", __timer_vals_barrier);
     CCUTILS_SECTION_JSON_PUT(dp, "hostname", host_name);
 
