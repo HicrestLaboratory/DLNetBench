@@ -414,6 +414,8 @@ int main(int argc, char* argv[]) {
 
 
     CCUTILS_MPI_GLOBAL_JSON_PUT(fsdp, "model_size_bytes", total_model_size*sizeof(_FLOAT))
+    CCUTILS_MPI_GLOBAL_JSON_PUT(fsdp, "model_name", model_name)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(fsdp, "world_size", world_size)
     CCUTILS_MPI_GLOBAL_JSON_PUT(fsdp, "num_units", num_units)
     CCUTILS_MPI_GLOBAL_JSON_PUT(fsdp, "sharding_factor", sharding_factor)
     CCUTILS_MPI_GLOBAL_JSON_PUT(fsdp, "num_replicas", num_replicas)
