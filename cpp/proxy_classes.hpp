@@ -259,11 +259,10 @@ public:
         : comm(std::move(comm_in)), num_streams(num_streams)
     {
         // create one queue per stream
-        streams.resize(num_streams);
         events.resize(num_streams);
         ccl_streams.reserve(num_streams);
         for (int i = 0; i < num_streams; i++) {
-            sycl::queue tmp_queue(ctx, dev, sycl::property::queue::in_order{});
+            sycl::queue tmp_queue(ctx, dev);
             ccl_streams.push_back(ccl::create_stream(tmp_queue));
         }
     }
@@ -285,7 +284,6 @@ public:
 
     void WaitAll(int num_waits) override {
         for (auto& e : events) e.wait();
-        events.clear();
     }
 
     void Wait(int index) override {
@@ -330,7 +328,7 @@ public:
 
     void finalize() override {
         events.clear();
-        streams.clear();
+        ccl_streams.clear();
     }
 
     std::string get_name() override { return "oneCCL"; }
@@ -338,7 +336,7 @@ public:
 private:
     ccl::communicator comm;
     int num_streams;
-    std::vector<ccl::stream> ccl_streams;;
+    std::vector<ccl::stream> ccl_streams;
     std::vector<ccl::event> events;
 };
 #endif
@@ -358,7 +356,7 @@ namespace DeviceManager {
     // Call this in main() to lock in the correct GPU for this rank
     static void init(const sycl::device& dev) {
         if (!q_ptr) {
-            q_ptr = std::make_unique<sycl::queue>(dev, sycl::property::queue::in_order{});
+            q_ptr = std::make_unique<sycl::queue>(dev);
         }
     }
 
