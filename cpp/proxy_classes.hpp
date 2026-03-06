@@ -260,25 +260,27 @@ public:
     {
         // create one queue per stream
         streams.resize(num_streams);
+        events.resize(num_streams);
+        ccl_streams.reserve(num_streams);
         for (int i = 0; i < num_streams; i++) {
-	    
-            streams[i] = sycl::queue(ctx, dev, sycl::property::queue::in_order{});
+            sycl::queue tmp_queue(ctx, dev, sycl::property::queue::in_order{});
+            ccl_streams.push_back(ccl::create_stream(tmp_queue));
         }
     }
 
     // Non-blocking allreduce
     void Iallreduce(const void* sendbuf, void* recvbuf, int count, int index) override {
-        events.push_back(ccl::allreduce(sendbuf, recvbuf, count, ONECCL_FLOAT_TYPE, ccl::reduction::sum, comm, get_ccl_stream(index)));
+        events[index] = ccl::allreduce(sendbuf, recvbuf, count, ONECCL_FLOAT_TYPE, ccl::reduction::sum, comm, ccl_streams[index]);
     }
 
     // Blocking allreduce
     void Allreduce(const void* sendbuf, void* recvbuf, int count) override {
-        ccl::allreduce(sendbuf, recvbuf, count, ONECCL_FLOAT_TYPE, ccl::reduction::sum, comm, get_ccl_stream(0)).wait();
+        ccl::allreduce(sendbuf, recvbuf, count, ONECCL_FLOAT_TYPE, ccl::reduction::sum, comm, ccl_streams[0]).wait();
     }
 
     void Alltoall(const void* sendbuf, int sendcount,
                     void* recvbuf, int recvcount) override {
-        ccl::alltoall(sendbuf, recvbuf, sendcount, ONECCL_FLOAT_TYPE, comm, get_ccl_stream(0)).wait();
+        ccl::alltoall(sendbuf, recvbuf, sendcount, ONECCL_FLOAT_TYPE, comm, ccl_streams[0]).wait();
     }
 
     void WaitAll(int num_waits) override {
@@ -292,38 +294,38 @@ public:
 
     void Barrier() override {
         // oneCCL barrier via allreduce of zero bytes
-        ccl::barrier(comm, get_ccl_stream(0)).wait();
+        ccl::barrier(comm, ccl_streams[0]).wait();
     }
 
     void Allgather(const void* sendbuf, int sendcount, void* recvbuf, int recvcount) override {
 	    std::vector<size_t> recvcounts(comm.size(), sendcount);
-	ccl::allgatherv(sendbuf, sendcount, recvbuf, recvcounts, ONECCL_FLOAT_TYPE, comm, get_ccl_stream(0)).wait();
+	ccl::allgatherv(sendbuf, sendcount, recvbuf, recvcounts, ONECCL_FLOAT_TYPE, comm, ccl_streams[0]).wait();
     }
 
     void Iallgather(const void* sendbuf, int sendcount, void* recvbuf, int recvcount, int index) override { 
         std::vector<size_t> recvcounts(comm.size(), sendcount);
-        events.push_back(ccl::allgatherv(sendbuf, sendcount, recvbuf, recvcounts, ONECCL_FLOAT_TYPE, comm, get_ccl_stream(index)));
+        events[index] = ccl::allgatherv(sendbuf, sendcount, recvbuf, recvcounts, ONECCL_FLOAT_TYPE, comm, ccl_streams[index]);
     }
 	
 
     void Reduce_Scatter_block(const void* sendbuf, void* recvbuf, int recvcount) override {
-        ccl::reduce_scatter(sendbuf, recvbuf, recvcount, ONECCL_FLOAT_TYPE, ccl::reduction::sum, comm, get_ccl_stream(0)).wait();
+        ccl::reduce_scatter(sendbuf, recvbuf, recvcount, ONECCL_FLOAT_TYPE, ccl::reduction::sum, comm, ccl_streams[0]).wait();
     }
 
     void send(const void* buf, int count, int dest) override {
-        ccl::send(const_cast<void*>(buf), count, ONECCL_FLOAT_TYPE, dest, comm, get_ccl_stream(0)).wait();
+        ccl::send(const_cast<void*>(buf), count, ONECCL_FLOAT_TYPE, dest, comm, ccl_streams[0]).wait();
     }
 
     void recv(void* buf, int count, int source) override {
-        ccl::recv(const_cast<void*>(buf), count, ONECCL_FLOAT_TYPE, source, comm, get_ccl_stream(0)).wait();
+        ccl::recv(const_cast<void*>(buf), count, ONECCL_FLOAT_TYPE, source, comm, ccl_streams[0]).wait();
     }
 
     void Isend(const void* buf, int count, int dest, int index) override {
-        events.push_back(ccl::send(const_cast<void*>(buf), count, ONECCL_FLOAT_TYPE, dest, comm, get_ccl_stream(index)));
+        events[index] = ccl::send(const_cast<void*>(buf), count, ONECCL_FLOAT_TYPE, dest, comm, ccl_streams[index]);
     }
 
     void Irecv(void* buf, int count, int source, int index) override {
-        events.push_back(ccl::recv(const_cast<void*>(buf), count, ONECCL_FLOAT_TYPE, source, comm, get_ccl_stream(index)));
+        events[index] = ccl::recv(const_cast<void*>(buf), count, ONECCL_FLOAT_TYPE, source, comm, ccl_streams[index]);
     }
 
     void finalize() override {
@@ -331,16 +333,12 @@ public:
         streams.clear();
     }
 
-    ccl::stream get_ccl_stream(int index) {
-        return ccl::create_stream(streams[index]);
-    }
-
     std::string get_name() override { return "oneCCL"; }
 
 private:
     ccl::communicator comm;
     int num_streams;
-    std::vector<sycl::queue> streams;
+    std::vector<ccl::stream> ccl_streams;;
     std::vector<ccl::event> events;
 };
 #endif
