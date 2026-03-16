@@ -229,10 +229,6 @@ int main(int argc, char* argv[]) {
     MPI_Comm_size(MPI_COMM_WORLD, &world_size);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     
-    // Check that world_size = num_stages * num_tensor_shards * dp_size
-    assert(world_size % (num_stage * num_tensor_shards) == 0);
-    int dp_size = world_size / (num_stage * num_tensor_shards);
-    
     CCUTILS_MPI_INIT
     install_signal_handlers();
     
@@ -274,6 +270,8 @@ int main(int argc, char* argv[]) {
 
     uint64_t sample_size_bytes = sequence_length * embedded_dim * sizeof(_FLOAT);
     
+    assert(world_size % (num_stage * num_tensor_shards) == 0);
+    int dp_size = world_size / (num_stage * num_tensor_shards);
     assert(num_layers % num_stage == 0);
     assert(local_batch_size % num_microbatches == 0);
     
