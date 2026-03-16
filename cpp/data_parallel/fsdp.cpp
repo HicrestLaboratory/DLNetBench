@@ -62,6 +62,7 @@ CCUTILS_MPI_TIMER_DEF(allgather)
 CCUTILS_MPI_TIMER_DEF(reduce_scatter)
 CCUTILS_MPI_TIMER_DEF(allgather_wait_fwd)
 CCUTILS_MPI_TIMER_DEF(allgather_wait_bwd)
+CCUTILS_MPI_TIMER_DEF(allgather_comm_fwd)
 CCUTILS_MPI_TIMER_DEF(barrier)
 CCUTILS_MPI_TIMER_DEF(runtime)
 
@@ -93,6 +94,7 @@ void run_fsdp(Tensor<_FLOAT, device>** shard_params,
 
     // Forward pass
     for (uint u = 0; u < num_units-1; u++) {
+        CCUTILS_MPI_TIMER_START(allgather_comm_fwd);
         unit_comm->Iallgather(shard_params[u+1]->data,
                                 static_cast<int>(max_params_per_shard[u+1]),
                                 layer_params->data,
@@ -105,6 +107,7 @@ void run_fsdp(Tensor<_FLOAT, device>** shard_params,
         CCUTILS_MPI_TIMER_START(allgather_wait_fwd);
         unit_comm->Wait(u+1);
         CCUTILS_MPI_TIMER_STOP(allgather_wait_fwd);
+        CCUTILS_MPI_TIMER_STOP(allgather_comm_fwd);
     }
 
     // Backward pass
@@ -178,6 +181,7 @@ void run_fsdp(Tensor<_FLOAT, device>** shard_params,
     OPTIONAL_STRING_ARG(dtype, default_dtype, "-t", "dtype", "Data type to use")
 
 #define BOOLEAN_ARGS \
+    BOOLEAN_ARG(print_topology, "-p", "Print topology graph") \
     BOOLEAN_ARG(help, "-h", "Show help")
 
 #include <ccutils/easyargs.hpp>
@@ -232,7 +236,10 @@ int main(int argc, char* argv[]) {
         return -1;
     }
 
-    print_topology_graph(MPI_COMM_WORLD);
+    if (args.print_topology) 
+        print_topology_graph(MPI_COMM_WORLD);
+
+
     std::map<std::string, uint64_t> model_stats = get_model_stats(file_path.string(), args.gpu, args.dtype, (uint64_t)args.batch_size); // get model stats from file
 
     uint64_t total_model_size = model_stats["modelSize"];

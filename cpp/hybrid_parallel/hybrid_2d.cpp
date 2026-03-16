@@ -184,7 +184,8 @@ int run_data_pipe_parallel(
     OPTIONAL_STRING_ARG(dtype, default_dtype, "-t", "dtype", "Data type to use")
 
 #define BOOLEAN_ARGS \
-    BOOLEAN_ARG(help, "-h", "Show help")
+    BOOLEAN_ARG(help, "-h", "Show help") \
+    BOOLEAN_ARG(print_topology, "-p", "Print topology graph") \
 
 #include <ccutils/easyargs.hpp>
 
@@ -257,7 +258,8 @@ int main(int argc, char* argv[]) {
     // DP all-reduce size (gradients for parameters in this stage)
     uint64_t dp_allreduce_size = total_model_size / num_stage;
     
-    print_topology_graph(MPI_COMM_WORLD);
+    if(args.print_topology)
+        print_topology_graph(MPI_COMM_WORLD);
 
     assert(num_layers % num_stage == 0);
     assert(local_batch_size % num_microbatches == 0);

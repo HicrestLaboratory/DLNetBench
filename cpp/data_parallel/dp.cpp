@@ -125,7 +125,8 @@ int run_data_parallel(Tensor<_FLOAT, device>** grad_ptrs, Tensor<_FLOAT, device>
     OPTIONAL_STRING_ARG(dtype, default_dtype, "-t", "dtype", "Data type to use")
 
 #define BOOLEAN_ARGS \
-    BOOLEAN_ARG(help, "-h", "Show help")
+    BOOLEAN_ARG(help, "-h", "Show help") \
+    BOOLEAN_ARG(print_topology, "-p", "Print topology graph") \
 
 #include <ccutils/easyargs.hpp>
 
@@ -180,7 +181,8 @@ int main(int argc, char* argv[]) {
         params_per_bucket[i] = base_params_per_bucket + (i < remainder ? 1 : 0); // distribute remainder across the buckets
     }
 
-    print_topology_graph(MPI_COMM_WORLD);
+    if(args.print_topology)
+        print_topology_graph(MPI_COMM_WORLD);
     
     int my_device = set_local_device(MPI_COMM_WORLD, args.devices);
 
@@ -304,7 +306,6 @@ int main(int argc, char* argv[]) {
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "bwd_rt_per_bucket", bwd_rt_per_B)
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "total_model_size_params", total_model_size)
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "msg_size_avg_bytes", msg_size_avg*sizeof(_FLOAT))
-    CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "msg_size_std_bytes", msg_size_std*sizeof(_FLOAT))
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "GPU model", args.gpu)
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "data_type", args.dtype)
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "device", (device == Device::CPU) ? "CPU" : "GPU")

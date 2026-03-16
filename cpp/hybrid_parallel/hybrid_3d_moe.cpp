@@ -227,7 +227,8 @@ int run_data_pipe_expert_parallel(
     OPTIONAL_STRING_ARG(dtype, default_dtype, "-t", "dtype", "Data type to use")
 
 #define BOOLEAN_ARGS \
-    BOOLEAN_ARG(help, "-h", "Show help")
+    BOOLEAN_ARG(help, "-h", "Show help") \
+    BOOLEAN_ARG(print_topology, "-p", "Print topology graph")
 
 #include <ccutils/easyargs.hpp>
 
@@ -303,7 +304,8 @@ int main(int argc, char* argv[]) {
     assert(local_batch_size % num_microbatches == 0);
     assert(num_experts % num_expert_shards == 0);
     
-    print_topology_graph(MPI_COMM_WORLD);
+    if(args.print_topology)
+        print_topology_graph(MPI_COMM_WORLD);
     // Create DP, PP, and EP communicators
     // Hierarchy: world_size = num_stages * num_expert_shards * dp_size
     // Layout: [DP replicas] x [Pipeline stages] x [Expert shards]
