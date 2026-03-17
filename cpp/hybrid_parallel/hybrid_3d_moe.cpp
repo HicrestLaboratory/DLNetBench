@@ -248,10 +248,6 @@ int main(int argc, char* argv[]) {
     MPI_Comm_size(MPI_COMM_WORLD, &world_size);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     
-    // Check that world_size = num_stages * num_expert_shards * dp_size
-    assert(world_size % (num_stage * num_expert_shards) == 0);
-    int dp_size = world_size / (num_stage * num_expert_shards);
-    
     CCUTILS_MPI_INIT
     install_signal_handlers();
     
@@ -300,6 +296,9 @@ int main(int argc, char* argv[]) {
         return -1;
     }
     
+    // Check that world_size = num_stages * num_expert_shards * dp_size
+    assert(world_size % (num_stage * num_expert_shards) == 0);
+    int dp_size = world_size / (num_stage * num_expert_shards);
     assert(num_layers % num_stage == 0);
     assert(local_batch_size % num_microbatches == 0);
     assert(num_experts % num_expert_shards == 0);
@@ -525,6 +524,7 @@ int main(int argc, char* argv[]) {
     __timer_vals_dp_comm.clear();
     __timer_vals_ep_comm.clear();
     __timer_vals_dp_ep_comm.clear();
+    std::vector<float> merged_pp_all; // to hold merged PP comm times for middle stages
 
     for(int iter = 0; iter < runs; iter++){
         CCUTILS_MPI_TIMER_START(runtime)
@@ -537,30 +537,26 @@ int main(int argc, char* argv[]) {
                               dp_communicator, pp_communicator, ep_communicator);
         
         CCUTILS_MPI_TIMER_STOP(runtime)
-        if(stage_id > 0 && stage_id < num_stage-1){
-            std::vector<float> merged_pp;
-            // We want 2 entries per microbatch: [Fwd_Comm, Bwd_Comm]
-            merged_pp.reserve(num_microbatches * 2);
+            if(stage_id > 0 && stage_id < num_stage-1){
+                int fwd_offset = iter * num_microbatches * 4;
+                int bwd_offset = fwd_offset + num_microbatches * 2;
 
-            int fwd_offset = 0;
-            int bwd_offset = num_microbatches * 2; // Bwd starts after all Fwd timers
-
-            for(int i = 0; i < num_microbatches; i++){
-                // Merge Forward: (Recv + Send)
-                float fwd_comm = __timer_vals_pp_comm[fwd_offset + i*2] + 
-                                __timer_vals_pp_comm[fwd_offset + i*2 + 1];
-                merged_pp.push_back(fwd_comm);
-            }
-            
-            for(int i = 0; i < num_microbatches; i++){
-                // Merge Backward: (Recv + Send)
-                float bwd_comm = __timer_vals_pp_comm[bwd_offset + i*2] + 
-                                __timer_vals_pp_comm[bwd_offset + i*2 + 1];
-                merged_pp.push_back(bwd_comm);
-            }
-
-            __timer_vals_pp_comm = std::move(merged_pp);
+                for(int i = 0; i < num_microbatches; i++){
+                    float fwd_comm = __timer_vals_pp_comm[fwd_offset + i*2] + 
+                                    __timer_vals_pp_comm[fwd_offset + i*2 + 1];
+                    merged_pp_all.push_back(fwd_comm);
+                }
+                for(int i = 0; i < num_microbatches; i++){
+                    float bwd_comm = __timer_vals_pp_comm[bwd_offset + i*2] + 
+                                    __timer_vals_pp_comm[bwd_offset + i*2 + 1];
+                    merged_pp_all.push_back(bwd_comm);
+                }
         }
+    }
+
+
+    if(stage_id > 0 && stage_id < num_stage-1){
+        __timer_vals_pp_comm = std::move(merged_pp_all);
     }
 
     int executed_runs = __timer_vals_runtime.size();

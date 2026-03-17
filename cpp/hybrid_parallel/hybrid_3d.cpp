@@ -485,7 +485,7 @@ int main(int argc, char* argv[]) {
     __timer_vals_pp_comm.clear();
     __timer_vals_dp_comm.clear();
     __timer_vals_tp_comm.clear();
-    
+    std::vector<float> merged_pp_all; // to hold merged PP comm times for middle stages
     for(int iter = 0; iter < runs; iter++){
         if(end){
             CCUTILS_MPI_PRINT_ONCE(printf("Interrupted at iteration %d. Total iteration completed: %d \n", iter, __timer_vals_runtime.size());)
@@ -502,29 +502,25 @@ int main(int argc, char* argv[]) {
         
         CCUTILS_MPI_TIMER_STOP(runtime)
         if(stage_id > 0 && stage_id < num_stage-1){
-            std::vector<float> merged_pp;
-            // We want 2 entries per microbatch: [Fwd_Comm, Bwd_Comm]
-            merged_pp.reserve(num_microbatches * 2);
-
-            int fwd_offset = 0;
-            int bwd_offset = num_microbatches * 2; // Bwd starts after all Fwd timers
+            // Raw entries for this iter start at iter * num_microbatches * 4
+            int fwd_offset = iter * num_microbatches * 4;
+            int bwd_offset = fwd_offset + num_microbatches * 2;
 
             for(int i = 0; i < num_microbatches; i++){
-                // Merge Forward: (Recv + Send)
                 float fwd_comm = __timer_vals_pp_comm[fwd_offset + i*2] + 
                                 __timer_vals_pp_comm[fwd_offset + i*2 + 1];
-                merged_pp.push_back(fwd_comm);
+                merged_pp_all.push_back(fwd_comm);
             }
-            
             for(int i = 0; i < num_microbatches; i++){
-                // Merge Backward: (Recv + Send)
                 float bwd_comm = __timer_vals_pp_comm[bwd_offset + i*2] + 
                                 __timer_vals_pp_comm[bwd_offset + i*2 + 1];
-                merged_pp.push_back(bwd_comm);
+                merged_pp_all.push_back(bwd_comm);
             }
-
-            __timer_vals_pp_comm = std::move(merged_pp);
         }
+    }
+
+    if(stage_id > 0 && stage_id < num_stage-1){
+        __timer_vals_pp_comm = std::move(merged_pp_all);
     }
 
     int executed_runs = __timer_vals_runtime.size();
