@@ -447,6 +447,7 @@ int main(int argc, char* argv[]) {
     }
     CCUTILS_SECTION_JSON_PUT(fsdp, "throughputs", throughputs)
     CCUTILS_SECTION_JSON_PUT(fsdp, "allgather", __timer_vals_allgather)
+    CCUTILS_SECTION_JSON_PUT(fsdp, "allgather_comm_fwd", __timer_vals_allgather_comm_fwd)
     CCUTILS_SECTION_JSON_PUT(fsdp, "allgather_wait_fwd", __timer_vals_allgather_wait_fwd)
     CCUTILS_SECTION_JSON_PUT(fsdp, "allgather_wait_bwd", __timer_vals_allgather_wait_bwd)
     CCUTILS_SECTION_JSON_PUT(fsdp, "reduce_scatter", __timer_vals_reduce_scatter)
