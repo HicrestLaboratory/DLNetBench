@@ -125,12 +125,25 @@ int run_data_pipe_expert_parallel(
     ProxyCommunicator* pp_communicator,
     ProxyCommunicator* ep_communicator){
     
+    // Calculate the half-layer timings for the microbatch
+    uint64_t fwd_half = (fwd_rt / layers_per_stage) / 2;
+    uint64_t bwd_half = (bwd_rt / layers_per_stage) / 2;
+
     // GPipe Pipeline Schedule
     // Forward pass for all micro-batches
     for(int i = 0; i < num_microbatches; i++){
         if(stage_id == 0){
             // First stage: compute then send
-            usleep(fwd_rt);
+            for(int l = 0; l < layers_per_stage; l++){
+                usleep(fwd_half);
+                CCUTILS_MPI_TIMER_START(ep_comm)
+                ep_communicator->Alltoall(ep_send_buffer->data, ep_alltoall_size, ep_recv_buffer->data, ep_alltoall_size);
+                CCUTILS_MPI_TIMER_STOP(ep_comm)
+                usleep(fwd_half);
+                CCUTILS_MPI_TIMER_START(ep_comm)
+                ep_communicator->Alltoall(ep_send_buffer->data, ep_alltoall_size, ep_recv_buffer->data, ep_alltoall_size);
+                CCUTILS_MPI_TIMER_STOP(ep_comm)
+            }
             CCUTILS_MPI_TIMER_START(pp_comm)
             pp_communicator->send(fwd_send_buff->data, pipe_msg_size, stage_id+1);
             CCUTILS_MPI_TIMER_STOP(pp_comm)
@@ -140,28 +153,35 @@ int run_data_pipe_expert_parallel(
             CCUTILS_MPI_TIMER_START(pp_comm)
             pp_communicator->recv(fwd_recv_buff->data, pipe_msg_size, stage_id-1);
             CCUTILS_MPI_TIMER_STOP(pp_comm)
-            usleep(fwd_rt);
+            for(int l = 0; l < layers_per_stage; l++){
+                usleep(fwd_half);
+                CCUTILS_MPI_TIMER_START(ep_comm)
+                ep_communicator->Alltoall(ep_send_buffer->data, ep_alltoall_size, ep_recv_buffer->data, ep_alltoall_size);
+                CCUTILS_MPI_TIMER_STOP(ep_comm)
+                usleep(fwd_half);
+                CCUTILS_MPI_TIMER_START(ep_comm)
+                ep_communicator->Alltoall(ep_send_buffer->data, ep_alltoall_size, ep_recv_buffer->data, ep_alltoall_size);
+                CCUTILS_MPI_TIMER_STOP(ep_comm)
+            }
         } 
         else{
             // Middle stages: receive, compute, send
             CCUTILS_MPI_TIMER_START(pp_comm)
             pp_communicator->recv(fwd_recv_buff->data, pipe_msg_size, stage_id-1);
             CCUTILS_MPI_TIMER_STOP(pp_comm)
-            usleep(fwd_rt);
+            for(int l = 0; l < layers_per_stage; l++){
+                usleep(fwd_half);
+                CCUTILS_MPI_TIMER_START(ep_comm)
+                ep_communicator->Alltoall(ep_send_buffer->data, ep_alltoall_size, ep_recv_buffer->data, ep_alltoall_size);
+                CCUTILS_MPI_TIMER_STOP(ep_comm)
+                usleep(fwd_half);
+                CCUTILS_MPI_TIMER_START(ep_comm)
+                ep_communicator->Alltoall(ep_send_buffer->data, ep_alltoall_size, ep_recv_buffer->data, ep_alltoall_size);
+                CCUTILS_MPI_TIMER_STOP(ep_comm)
+            }
             CCUTILS_MPI_TIMER_START(pp_comm)
             pp_communicator->send(fwd_send_buff->data, pipe_msg_size, stage_id+1);
             CCUTILS_MPI_TIMER_STOP(pp_comm)
-        }
-        // Expert parallel communication during forward pass
-        // In MoE layers: All-to-All to route tokens to experts
-        // Assuming MoE layers occur at regular intervals (e.g., every other layer)
-        // For simplicity, we do 2 all-to-all operations per microbatch:
-        // 1. Route tokens TO experts (before expert computation)
-        // 2. Route tokens FROM experts (after expert computation)
-        for(int ep_iter = 0; ep_iter < (2*layers_per_stage); ep_iter++){
-            CCUTILS_MPI_TIMER_START(ep_comm)
-            ep_communicator->Alltoall(ep_send_buffer->data, ep_alltoall_size, ep_recv_buffer->data, ep_alltoall_size);
-            CCUTILS_MPI_TIMER_STOP(ep_comm)
         }
     }
     
@@ -172,11 +192,29 @@ int run_data_pipe_expert_parallel(
             CCUTILS_MPI_TIMER_START(pp_comm)
             pp_communicator->recv(bwd_recv_buff->data, pipe_msg_size, stage_id+1);
             CCUTILS_MPI_TIMER_STOP(pp_comm)
-            usleep(bwd_rt);
+            for(int l = 0; l < layers_per_stage; l++){
+                usleep(bwd_half);
+                CCUTILS_MPI_TIMER_START(ep_comm)
+                ep_communicator->Alltoall(ep_send_buffer->data, ep_alltoall_size, ep_recv_buffer->data, ep_alltoall_size);
+                CCUTILS_MPI_TIMER_STOP(ep_comm)
+                usleep(bwd_half);
+                CCUTILS_MPI_TIMER_START(ep_comm)
+                ep_communicator->Alltoall(ep_send_buffer->data, ep_alltoall_size, ep_recv_buffer->data, ep_alltoall_size);
+                CCUTILS_MPI_TIMER_STOP(ep_comm)
+            }
         } 
         else if(stage_id == num_stage-1){
             // Last stage: compute then send
-            usleep(bwd_rt);
+            for(int l = 0; l < layers_per_stage; l++){
+                usleep(bwd_half);
+                CCUTILS_MPI_TIMER_START(ep_comm)
+                ep_communicator->Alltoall(ep_send_buffer->data, ep_alltoall_size, ep_recv_buffer->data, ep_alltoall_size);
+                CCUTILS_MPI_TIMER_STOP(ep_comm)
+                usleep(bwd_half);
+                CCUTILS_MPI_TIMER_START(ep_comm)
+                ep_communicator->Alltoall(ep_send_buffer->data, ep_alltoall_size, ep_recv_buffer->data, ep_alltoall_size);
+                CCUTILS_MPI_TIMER_STOP(ep_comm)
+            }
             CCUTILS_MPI_TIMER_START(pp_comm)
             pp_communicator->send(bwd_send_buff->data, pipe_msg_size, stage_id-1);
             CCUTILS_MPI_TIMER_STOP(pp_comm)
@@ -186,19 +224,22 @@ int run_data_pipe_expert_parallel(
             CCUTILS_MPI_TIMER_START(pp_comm)
             pp_communicator->recv(bwd_recv_buff->data, pipe_msg_size, stage_id+1);
             CCUTILS_MPI_TIMER_STOP(pp_comm)
-            usleep(bwd_rt);
+            for(int l = 0; l < layers_per_stage; l++){
+                usleep(bwd_half);
+                CCUTILS_MPI_TIMER_START(ep_comm)
+                ep_communicator->Alltoall(ep_send_buffer->data, ep_alltoall_size, ep_recv_buffer->data, ep_alltoall_size);
+                CCUTILS_MPI_TIMER_STOP(ep_comm)
+                usleep(bwd_half);
+                CCUTILS_MPI_TIMER_START(ep_comm)
+                ep_communicator->Alltoall(ep_send_buffer->data, ep_alltoall_size, ep_recv_buffer->data, ep_alltoall_size);
+                CCUTILS_MPI_TIMER_STOP(ep_comm)
+            }
             CCUTILS_MPI_TIMER_START(pp_comm)
             pp_communicator->send(bwd_send_buff->data, pipe_msg_size, stage_id-1);
             CCUTILS_MPI_TIMER_STOP(pp_comm)
         }        
-        // Expert parallel communication during backward pass
-        // All-to-All for gradient routing back through experts
-        for(int ep_iter = 0; ep_iter < (2*layers_per_stage); ep_iter++){
-            CCUTILS_MPI_TIMER_START(ep_comm)
-            ep_communicator->Alltoall(ep_send_buffer->data, ep_alltoall_size, ep_recv_buffer->data, ep_alltoall_size);
-            CCUTILS_MPI_TIMER_STOP(ep_comm)
-        }
     }
+    
     CCUTILS_MPI_TIMER_START(dp_ep_comm)
     ep_communicator->Allreduce(grad_ptr->data, sum_grad_ptr->data, non_expert_size);
     CCUTILS_MPI_TIMER_STOP(dp_ep_comm)

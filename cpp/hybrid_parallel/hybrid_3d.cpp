@@ -112,83 +112,119 @@ int run_data_pipe_tensor_parallel(
     ProxyCommunicator* dp_communicator,
     ProxyCommunicator* pp_communicator,
     ProxyCommunicator* tp_communicator){
-    
-    // GPipe Pipeline Schedule
-    // Forward pass for all micro-batches
+
+    uint64_t fwd_half = (fwd_rt / layers_per_stage) / 2;
+    uint64_t bwd_half = (bwd_rt / layers_per_stage) / 2;
+
+    // Forward pass
     for(int i = 0; i < num_microbatches; i++){
         if(stage_id == 0){
-            // First stage: compute then send
-            usleep(fwd_rt);
-            CCUTILS_MPI_TIMER_START(pp_comm)
-            pp_communicator->send(fwd_send_buff->data, pipe_msg_size, stage_id+1);
-            CCUTILS_MPI_TIMER_STOP(pp_comm)
-        } 
-        else if(stage_id == num_stage-1){
-            // Last stage: receive then compute
-            CCUTILS_MPI_TIMER_START(pp_comm)
-            pp_communicator->recv(fwd_recv_buff->data, pipe_msg_size, stage_id-1);
-            CCUTILS_MPI_TIMER_STOP(pp_comm)
-            usleep(fwd_rt);
-        } 
-        else{
-            // Middle stages: receive, compute, send
-            CCUTILS_MPI_TIMER_START(pp_comm)
-            pp_communicator->recv(fwd_recv_buff->data, pipe_msg_size, stage_id-1);
-            CCUTILS_MPI_TIMER_STOP(pp_comm)
-            usleep(fwd_rt);
+            for(int l = 0; l < layers_per_stage; l++){
+                usleep(fwd_half);
+                CCUTILS_MPI_TIMER_START(tp_comm)
+                tp_communicator->Allreduce(tp_buffer->data, tp_result_buffer->data, tp_allreduce_size);
+                CCUTILS_MPI_TIMER_STOP(tp_comm)
+                usleep(fwd_half);
+                CCUTILS_MPI_TIMER_START(tp_comm)
+                tp_communicator->Allreduce(tp_buffer->data, tp_result_buffer->data, tp_allreduce_size);
+                CCUTILS_MPI_TIMER_STOP(tp_comm)
+            }
             CCUTILS_MPI_TIMER_START(pp_comm)
             pp_communicator->send(fwd_send_buff->data, pipe_msg_size, stage_id+1);
             CCUTILS_MPI_TIMER_STOP(pp_comm)
         }
-        // Tensor parallel communication during forward pass
-        // 2 all-reduces per microbatch (column-parallel and row-parallel)
-        for(int tp_iter = 0; tp_iter < 2*layers_per_stage; tp_iter++){
-            CCUTILS_MPI_TIMER_START(tp_comm)
-            tp_communicator->Allreduce(tp_buffer->data, tp_result_buffer->data, tp_allreduce_size);
-            CCUTILS_MPI_TIMER_STOP(tp_comm)
+        else if(stage_id == num_stage-1){
+            CCUTILS_MPI_TIMER_START(pp_comm)
+            pp_communicator->recv(fwd_recv_buff->data, pipe_msg_size, stage_id-1);
+            CCUTILS_MPI_TIMER_STOP(pp_comm)
+            for(int l = 0; l < layers_per_stage; l++){
+                usleep(fwd_half);
+                CCUTILS_MPI_TIMER_START(tp_comm)
+                tp_communicator->Allreduce(tp_buffer->data, tp_result_buffer->data, tp_allreduce_size);
+                CCUTILS_MPI_TIMER_STOP(tp_comm)
+                usleep(fwd_half);
+                CCUTILS_MPI_TIMER_START(tp_comm)
+                tp_communicator->Allreduce(tp_buffer->data, tp_result_buffer->data, tp_allreduce_size);
+                CCUTILS_MPI_TIMER_STOP(tp_comm)
+            }
+        }
+        else{
+            CCUTILS_MPI_TIMER_START(pp_comm)
+            pp_communicator->recv(fwd_recv_buff->data, pipe_msg_size, stage_id-1);
+            CCUTILS_MPI_TIMER_STOP(pp_comm)
+            for(int l = 0; l < layers_per_stage; l++){
+                usleep(fwd_half);
+                CCUTILS_MPI_TIMER_START(tp_comm)
+                tp_communicator->Allreduce(tp_buffer->data, tp_result_buffer->data, tp_allreduce_size);
+                CCUTILS_MPI_TIMER_STOP(tp_comm)
+                usleep(fwd_half);
+                CCUTILS_MPI_TIMER_START(tp_comm)
+                tp_communicator->Allreduce(tp_buffer->data, tp_result_buffer->data, tp_allreduce_size);
+                CCUTILS_MPI_TIMER_STOP(tp_comm)
+            }
+            CCUTILS_MPI_TIMER_START(pp_comm)
+            pp_communicator->send(fwd_send_buff->data, pipe_msg_size, stage_id+1);
+            CCUTILS_MPI_TIMER_STOP(pp_comm)
         }
     }
-    
-    // Backward pass for all micro-batches
+
+    // Backward pass
     for(int i = 0; i < num_microbatches; i++){
         if(stage_id == 0){
-            // First stage: receive then compute
             CCUTILS_MPI_TIMER_START(pp_comm)
             pp_communicator->recv(bwd_recv_buff->data, pipe_msg_size, stage_id+1);
             CCUTILS_MPI_TIMER_STOP(pp_comm)
-            usleep(bwd_rt);
-        } 
+            for(int l = 0; l < layers_per_stage; l++){
+                usleep(bwd_half);
+                CCUTILS_MPI_TIMER_START(tp_comm)
+                tp_communicator->Allreduce(tp_buffer->data, tp_result_buffer->data, tp_allreduce_size);
+                CCUTILS_MPI_TIMER_STOP(tp_comm)
+                usleep(bwd_half);
+                CCUTILS_MPI_TIMER_START(tp_comm)
+                tp_communicator->Allreduce(tp_buffer->data, tp_result_buffer->data, tp_allreduce_size);
+                CCUTILS_MPI_TIMER_STOP(tp_comm)
+            }
+        }
         else if(stage_id == num_stage-1){
-            // Last stage: compute then send
-            usleep(bwd_rt);
+            for(int l = 0; l < layers_per_stage; l++){
+                usleep(bwd_half);
+                CCUTILS_MPI_TIMER_START(tp_comm)
+                tp_communicator->Allreduce(tp_buffer->data, tp_result_buffer->data, tp_allreduce_size);
+                CCUTILS_MPI_TIMER_STOP(tp_comm)
+                usleep(bwd_half);
+                CCUTILS_MPI_TIMER_START(tp_comm)
+                tp_communicator->Allreduce(tp_buffer->data, tp_result_buffer->data, tp_allreduce_size);
+                CCUTILS_MPI_TIMER_STOP(tp_comm)
+            }
             CCUTILS_MPI_TIMER_START(pp_comm)
             pp_communicator->send(bwd_send_buff->data, pipe_msg_size, stage_id-1);
             CCUTILS_MPI_TIMER_STOP(pp_comm)
-        } 
+        }
         else{
-            // Middle stages: receive, compute, send
             CCUTILS_MPI_TIMER_START(pp_comm)
             pp_communicator->recv(bwd_recv_buff->data, pipe_msg_size, stage_id+1);
             CCUTILS_MPI_TIMER_STOP(pp_comm)
-            usleep(bwd_rt);
+            for(int l = 0; l < layers_per_stage; l++){
+                usleep(bwd_half);
+                CCUTILS_MPI_TIMER_START(tp_comm)
+                tp_communicator->Allreduce(tp_buffer->data, tp_result_buffer->data, tp_allreduce_size);
+                CCUTILS_MPI_TIMER_STOP(tp_comm)
+                usleep(bwd_half);
+                CCUTILS_MPI_TIMER_START(tp_comm)
+                tp_communicator->Allreduce(tp_buffer->data, tp_result_buffer->data, tp_allreduce_size);
+                CCUTILS_MPI_TIMER_STOP(tp_comm)
+            }
             CCUTILS_MPI_TIMER_START(pp_comm)
             pp_communicator->send(bwd_send_buff->data, pipe_msg_size, stage_id-1);
             CCUTILS_MPI_TIMER_STOP(pp_comm)
-        }        
-        // Tensor parallel communication during backward pass
-        // 2 all-reduces per microbatch
-        for(int tp_iter = 0; tp_iter < 2*layers_per_stage; tp_iter++){
-            CCUTILS_MPI_TIMER_START(tp_comm)
-            tp_communicator->Allreduce(tp_buffer->data, tp_result_buffer->data, tp_allreduce_size);
-            CCUTILS_MPI_TIMER_STOP(tp_comm)
         }
     }
-    
+
     // Data-parallel all-reduce for accumulated gradients
     CCUTILS_MPI_TIMER_START(dp_comm)
     dp_communicator->Allreduce(grad_ptr->data, sum_grad_ptr->data, dp_allreduce_size);
     CCUTILS_MPI_TIMER_STOP(dp_comm)
-    
+
     return 0;
 }
 
