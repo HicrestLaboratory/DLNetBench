@@ -29,30 +29,30 @@
 //TODO: add Send/Recv methods and make function inlines for performance
 class ProxyCommunicator {
 public:
-    virtual void Iallreduce(const void* sendbuf, void* recvbuf, int count, int index) = 0;
-    virtual void Allreduce(const void* sendbuf, void* recvbuf, int count) = 0;
-    virtual void Iallgather(const void* sendbuf, int sendcount,
-                            void* recvbuf, int recvcount, int index) = 0;
-    virtual void Allgather(const void* sendbuf, int sendcount,
-                           void* recvbuf, int recvcount) = 0;
-    virtual void Reduce_Scatter_block(const void* sendbuf, void* recvbuf, int recvcount) = 0;
-    virtual void Alltoall(const void* sendbuf, int sendcount,
-                            void* recvbuf, int recvcount) = 0;
+    virtual void Iallreduce(const void* sendbuf, void* recvbuf, size_t count, int index) = 0;
+    virtual void Allreduce(const void* sendbuf, void* recvbuf, size_t count) = 0;
+    virtual void Iallgather(const void* sendbuf, size_t sendcount,
+                            void* recvbuf, size_t recvcount, int index) = 0;
+    virtual void Allgather(const void* sendbuf, size_t sendcount,
+                           void* recvbuf, size_t recvcount) = 0;
+    virtual void Reduce_Scatter_block(const void* sendbuf, void* recvbuf, size_t recvcount) = 0;
+    virtual void Alltoall(const void* sendbuf, size_t sendcount,
+                            void* recvbuf, size_t recvcount) = 0;
     virtual void Barrier() = 0;
     virtual void WaitAll(int num_waits) = 0;
     virtual void Wait(int index) = 0;
     virtual void finalize() = 0;
-    virtual void send(const void* buf, int count, int dest) = 0;
-    virtual void recv(void* buf, int count, int source) = 0;
-    virtual void Isend(const void* buf, int count, int dest, int index) = 0;
-    virtual void Irecv(void* buf, int count, int source, int index) = 0;
+    virtual void send(const void* buf, size_t count, int dest) = 0;
+    virtual void recv(void* buf, size_t count, int source) = 0;
+    virtual void Isend(const void* buf, size_t count, int dest, int index) = 0;
+    virtual void Irecv(void* buf, size_t count, int source, int index) = 0;
     virtual std::string get_name() = 0;
     virtual ~ProxyCommunicator() {}
 };
 
 class MPICommunicator : public ProxyCommunicator {
 public:
-    MPICommunicator(MPI_Comm comm, MPI_Datatype datatype, int num_requests=0) {
+    MPICommunicator(MPI_Comm comm, MPI_Datatype datatype, size_t num_requests=0) {
         this->comm = comm;
         this->datatype = datatype;
         MPI_Comm_rank(comm, &rank);
@@ -63,16 +63,16 @@ public:
         }
     };
 
-    void Iallreduce(const void* sendbuf, void* recvbuf, int count, int index) override {
+    void Iallreduce(const void* sendbuf, void* recvbuf, size_t count, int index) override {
         MPI_Iallreduce(sendbuf, recvbuf, count, MPI_FLOAT, MPI_SUM, comm, &(requests[index]));
     };
 
-    void Allreduce(const void* sendbuf, void* recvbuf, int count) override {
+    void Allreduce(const void* sendbuf, void* recvbuf, size_t count) override {
         MPI_Allreduce(sendbuf, recvbuf, count, MPI_FLOAT, MPI_SUM, comm);
     };
 
-    void Alltoall(const void* sendbuf, int sendcount,
-                    void* recvbuf, int recvcount) override {
+    void Alltoall(const void* sendbuf, size_t sendcount,
+                    void* recvbuf, size_t recvcount) override {
         MPI_Alltoall(sendbuf, sendcount, datatype, recvbuf, recvcount, datatype, comm);
     };
 
@@ -88,31 +88,31 @@ public:
         MPI_Wait(&requests[index], MPI_STATUS_IGNORE);
     };
 
-    void Iallgather(const void* sendbuf, int sendcount, void* recvbuf, int recvcount, int index) override {
+    void Iallgather(const void* sendbuf, size_t sendcount, void* recvbuf, size_t recvcount, int index) override {
         MPI_Iallgather(sendbuf, sendcount, datatype, recvbuf, recvcount, datatype, comm, &requests[index]);
     }
 
-    void Allgather(const void* sendbuf, int sendcount, void* recvbuf, int recvcount) override {
+    void Allgather(const void* sendbuf, size_t sendcount, void* recvbuf, size_t recvcount) override {
         MPI_Allgather(sendbuf, sendcount, datatype, recvbuf, recvcount, datatype, comm);
     };
 
-    void Reduce_Scatter_block(const void* sendbuf, void* recvbuf, int recvcount) override {
+    void Reduce_Scatter_block(const void* sendbuf, void* recvbuf, size_t recvcount) override {
         MPI_Reduce_scatter_block(sendbuf, recvbuf, recvcount, MPI_FLOAT, MPI_SUM, comm);
     };
 
-    void send(const void* buf, int count, int dest) override {
+    void send(const void* buf, size_t count, int dest) override {
         MPI_Send(buf, count, datatype, dest, 0, comm);
     };
 
-    void recv(void* buf, int count, int source) override {
+    void recv(void* buf, size_t count, int source) override {
         MPI_Recv(buf, count, datatype, source, 0, comm, MPI_STATUS_IGNORE);
     };
 
-    void Isend(const void* buf, int count, int dest, int index) override {
+    void Isend(const void* buf, size_t count, int dest, int index) override {
         MPI_Isend(buf, count, datatype, dest, 0, comm, &requests[index]);
     };
 
-    void Irecv(void* buf, int count, int source, int index) override {
+    void Irecv(void* buf, size_t count, int source, int index) override {
         MPI_Irecv(buf, count, datatype, source, 0, comm, &requests[index]);
     };
 
@@ -135,30 +135,30 @@ private:
 #ifdef PROXY_ENABLE_CCL //NCCL or RCCL
 class CCLCommunicator : public ProxyCommunicator {
 public:
-    CCLCommunicator(ncclComm_t comm, int num_streams=1) {
+    CCLCommunicator(ncclComm_t comm, size_t num_streams=1) {
         this->comm = comm;
         this->num_streams = num_streams;
         ncclCommUserRank(comm, &rank);
         ncclCommCount(comm, &comm_size);
         this->streams = new _Stream[num_streams];
-        for(int i = 0; i < num_streams; i++) {
+        for(size_t i = 0; i < num_streams; i++) {
             CREATE_STREAM(this->streams[i]);
         }
     };
 
-    void Iallreduce(const void* sendbuf, void* recvbuf, int count, int index) override{
+    void Iallreduce(const void* sendbuf, void* recvbuf, size_t count, int index) override{
         ncclAllReduce(sendbuf, recvbuf, count, NCCL_FLOAT_TYPE, ncclSum,
                       comm, streams[index]);
     }
 
-    void Allreduce(const void* sendbuf, void* recvbuf, int count) override {
+    void Allreduce(const void* sendbuf, void* recvbuf, size_t count) override {
         ncclAllReduce(sendbuf, recvbuf, count, NCCL_FLOAT_TYPE, ncclSum,
                       comm, streams[0]);
         Wait(0);
     }
 
-    void Alltoall(const void* sendbuf, int sendcount,
-                    void* recvbuf, int recvcount) override {
+    void Alltoall(const void* sendbuf, size_t sendcount,
+                    void* recvbuf, size_t recvcount) override {
         
         // 1. Begin the Group: Batches all operations into a single kernel launch
         ncclGroupStart();
@@ -181,8 +181,8 @@ public:
         Wait(0);
     }
 
-    void WaitAll(int num_waits) override {
-        for(int i = 0; i < num_waits; i++) 
+    void WaitAll(size_t num_waits) override {
+        for(size_t i = 0; i < num_waits; i++) 
             SYNC_STREAM(streams[i]);
     }
 
@@ -194,40 +194,40 @@ public:
         SYNC_STREAM(streams[index]);
     };
 
-    void Allgather(const void* sendbuf, int sendcount, void* recvbuf, int recvcount) override {
+    void Allgather(const void* sendbuf, size_t sendcount, void* recvbuf, size_t recvcount) override {
         ncclAllGather(sendbuf, recvbuf, sendcount, NCCL_FLOAT_TYPE, comm, streams[0]);
         Wait(0);
     };
 
-    void Iallgather(const void* sendbuf, int sendcount, void* recvbuf, int recvcount, int index) override {
+    void Iallgather(const void* sendbuf, size_t sendcount, void* recvbuf, size_t recvcount, int index) override {
         ncclAllGather(sendbuf, recvbuf, sendcount, NCCL_FLOAT_TYPE, comm, streams[index]);
     };
 
-    void Reduce_Scatter_block(const void* sendbuf, void* recvbuf, int recvcount) override {
+    void Reduce_Scatter_block(const void* sendbuf, void* recvbuf, size_t recvcount) override {
         ncclReduceScatter(sendbuf, recvbuf, recvcount, NCCL_FLOAT_TYPE, ncclSum, comm, streams[0]);
         Wait(0);
     };
 
-    void send(const void* buf, int count, int peer) override {
+    void send(const void* buf, size_t count, int peer) override {
         ncclSend(buf, count, NCCL_FLOAT_TYPE, peer, comm, streams[0]);
         Wait(0);
     }
 
-    void recv(void* buf, int count, int peer) override {
+    void recv(void* buf, size_t count, int peer) override {
         ncclRecv(buf, count, NCCL_FLOAT_TYPE, peer, comm, streams[0]);
         Wait(0);
     }
 
-    void Isend(const void* buf, int count, int peer, int index) override {
+    void Isend(const void* buf, size_t count, int peer, int index) override {
         ncclSend(buf, count, NCCL_FLOAT_TYPE, peer, comm, streams[index]);
     }
 
-    void Irecv(void* buf, int count, int peer, int index) override {
+    void Irecv(void* buf, size_t count, int peer, int index) override {
         ncclRecv(buf, count, NCCL_FLOAT_TYPE, peer, comm, streams[index]);
     }
 
     void finalize() override {
-        for(int i = 0; i < num_streams; i++) {
+        for(size_t i = 0; i < num_streams; i++) {
             DESTROY_STREAM(streams[i]);
         }
         delete[] streams;
@@ -268,25 +268,25 @@ public:
     }
 
     // Non-blocking allreduce
-    void Iallreduce(const void* sendbuf, void* recvbuf, int count, int index) override {
+    void Iallreduce(const void* sendbuf, void* recvbuf, size_t count, int index) override {
         events[index] = ccl::allreduce(sendbuf, recvbuf, count, ONECCL_FLOAT_TYPE, ccl::reduction::sum, comm, ccl_streams[index]);
     }
 
     // Blocking allreduce
-    void Allreduce(const void* sendbuf, void* recvbuf, int count) override {
+    void Allreduce(const void* sendbuf, void* recvbuf, size_t count) override {
         ccl::allreduce(sendbuf, recvbuf, count, ONECCL_FLOAT_TYPE, ccl::reduction::sum, comm, ccl_streams[0]).wait();
     }
 
-    void Alltoall(const void* sendbuf, int sendcount,
-                    void* recvbuf, int recvcount) override {
+    void Alltoall(const void* sendbuf, size_t sendcount,
+                    void* recvbuf, size_t recvcount) override {
         ccl::alltoall(sendbuf, recvbuf, sendcount, ONECCL_FLOAT_TYPE, comm, ccl_streams[0]).wait();
     }
 
-    void WaitAll(int num_waits) override {
+    void WaitAll(size_t num_waits) override {
         for (auto& e : events) e.wait();
     }
 
-    void Wait(int index) override {
+    void Wait(size_t index) override {
         if (index < events.size()) events[index].wait();
     }
 
@@ -295,34 +295,34 @@ public:
         ccl::barrier(comm, ccl_streams[0]).wait();
     }
 
-    void Allgather(const void* sendbuf, int sendcount, void* recvbuf, int recvcount) override {
+    void Allgather(const void* sendbuf, size_t sendcount, void* recvbuf, size_t recvcount) override {
 	    std::vector<size_t> recvcounts(comm.size(), sendcount);
 	ccl::allgatherv(sendbuf, sendcount, recvbuf, recvcounts, ONECCL_FLOAT_TYPE, comm, ccl_streams[0]).wait();
     }
 
-    void Iallgather(const void* sendbuf, int sendcount, void* recvbuf, int recvcount, int index) override { 
+    void Iallgather(const void* sendbuf, size_t sendcount, void* recvbuf, size_t recvcount, int index) override { 
         std::vector<size_t> recvcounts(comm.size(), sendcount);
         events[index] = ccl::allgatherv(sendbuf, sendcount, recvbuf, recvcounts, ONECCL_FLOAT_TYPE, comm, ccl_streams[index]);
     }
 	
 
-    void Reduce_Scatter_block(const void* sendbuf, void* recvbuf, int recvcount) override {
+    void Reduce_Scatter_block(const void* sendbuf, void* recvbuf, size_t recvcount) override {
         ccl::reduce_scatter(sendbuf, recvbuf, recvcount, ONECCL_FLOAT_TYPE, ccl::reduction::sum, comm, ccl_streams[0]).wait();
     }
 
-    void send(const void* buf, int count, int dest) override {
+    void send(const void* buf, size_t count, int dest) override {
         ccl::send(const_cast<void*>(buf), count, ONECCL_FLOAT_TYPE, dest, comm, ccl_streams[0]).wait();
     }
 
-    void recv(void* buf, int count, int source) override {
+    void recv(void* buf, size_t count, int source) override {
         ccl::recv(const_cast<void*>(buf), count, ONECCL_FLOAT_TYPE, source, comm, ccl_streams[0]).wait();
     }
 
-    void Isend(const void* buf, int count, int dest, int index) override {
+    void Isend(const void* buf, size_t count, int dest, int index) override {
         events[index] = ccl::send(const_cast<void*>(buf), count, ONECCL_FLOAT_TYPE, dest, comm, ccl_streams[index]);
     }
 
-    void Irecv(void* buf, int count, int source, int index) override {
+    void Irecv(void* buf, size_t count, int source, int index) override {
         events[index] = ccl::recv(const_cast<void*>(buf), count, ONECCL_FLOAT_TYPE, source, comm, ccl_streams[index]);
     }
 
