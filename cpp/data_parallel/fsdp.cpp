@@ -182,7 +182,8 @@ void run_fsdp(Tensor<_FLOAT, device>** shard_params,
 
 #define BOOLEAN_ARGS \
     BOOLEAN_ARG(print_topology, "-p", "Print topology graph") \
-    BOOLEAN_ARG(help, "-h", "Show help")
+    BOOLEAN_ARG(help, "-h", "Show help") \
+    BOOLEAN_ARG(print_devices_ids, "-pd", "Print device IDs") \
 
 #include <ccutils/easyargs.hpp>
 
@@ -272,7 +273,8 @@ int main(int argc, char* argv[]) {
     MPI_Comm_split(MPI_COMM_WORLD, shard_index_color, rank, &allreduce_comm);
 
     int my_device = set_local_device(MPI_COMM_WORLD, args.devices);
-    CCUTILS_MPI_ALL_PRINT(fprintf(fp, "Using device %d\n", my_device);)
+    if(args.print_devices_ids)
+        CCUTILS_MPI_ALL_PRINT(fprintf(fp, "Using device %d\n", my_device);)
     
 #ifdef PROXY_ENABLE_CCL 
     ncclUniqueId id;
