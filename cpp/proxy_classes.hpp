@@ -80,7 +80,7 @@ public:
         MPI_Barrier(comm);
     };
 
-    void WaitAll(int num_waits) override {
+    void WaitAll(size_t num_waits) override {
         MPI_Waitall(num_waits, requests, MPI_STATUSES_IGNORE);
     };
 
