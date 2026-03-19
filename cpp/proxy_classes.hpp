@@ -39,7 +39,7 @@ public:
     virtual void Alltoall(const void* sendbuf, size_t sendcount,
                             void* recvbuf, size_t recvcount) = 0;
     virtual void Barrier() = 0;
-    virtual void WaitAll(int num_waits) = 0;
+    virtual void WaitAll(size_t num_waits) = 0;
     virtual void Wait(int index) = 0;
     virtual void finalize() = 0;
     virtual void send(const void* buf, size_t count, int dest) = 0;
