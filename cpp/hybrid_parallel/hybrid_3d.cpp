@@ -74,8 +74,10 @@ CCUTILS_MPI_TIMER_DEF(tp_comm)
  * @param stage_id Pipeline stage ID for this process
  * @param num_stage Total number of pipeline stages
  * @param pipe_msg_size Size of activations/gradients passed between stages (per microbatch)
- * @param fwd_rt Forward pass runtime per micro-batch (in microseconds)
- * @param bwd_rt Backward pass runtime per micro-batch (in microseconds)
+ * @param attn_fwd_per_microbatch Attention forward pass runtime per micro-batch (in microseconds)
+ * @param ffn_fwd_per_microbatch FFN forward pass runtime per micro-batch (in microseconds)
+ * @param attn_bwd_per_microbatch Attention backward pass runtime per micro-batch (in microseconds)
+ * @param ffn_bwd_per_microbatch FFN backward pass runtime per micro-batch (in microseconds)
  * @param grad_ptr Pointer to gradient buffer for DP all-reduce
  * @param sum_grad_ptr Pointer to reduced gradient buffer
  * @param dp_allreduce_size Size of gradient buffer for DP all-reduce
@@ -97,8 +99,10 @@ int run_data_pipe_tensor_parallel(
     int num_stage,
     uint layers_per_stage,
     uint64_t pipe_msg_size,
-    uint64_t fwd_rt,
-    uint64_t bwd_rt,
+    uint64_t attn_fwd_per_microbatch,
+    uint64_t ffn_fwd_per_microbatch,
+    uint64_t attn_bwd_per_microbatch,
+    uint64_t ffn_bwd_per_microbatch,
     Tensor<_FLOAT, device>* grad_ptr,
     Tensor<_FLOAT, device>* sum_grad_ptr,
     uint64_t dp_allreduce_size,
@@ -113,18 +117,21 @@ int run_data_pipe_tensor_parallel(
     ProxyCommunicator* pp_communicator,
     ProxyCommunicator* tp_communicator){
 
-    uint64_t fwd_half = (fwd_rt / layers_per_stage) / 2;
-    uint64_t bwd_half = (bwd_rt / layers_per_stage) / 2;
+    // Calculate component timings per layer
+    uint64_t attn_fwd_rt = attn_fwd_per_microbatch / layers_per_stage;
+    uint64_t mlp_fwd_rt = ffn_fwd_per_microbatch / layers_per_stage;
+    uint64_t attn_bwd_rt = attn_bwd_per_microbatch / layers_per_stage;
+    uint64_t mlp_bwd_rt = ffn_bwd_per_microbatch / layers_per_stage;
 
     // Forward pass
     for(int i = 0; i < num_microbatches; i++){
         if(stage_id == 0){
             for(int l = 0; l < layers_per_stage; l++){
-                usleep(fwd_half);
+                usleep(attn_fwd_rt);
                 CCUTILS_MPI_TIMER_START(tp_comm)
                 tp_communicator->Allreduce(tp_buffer->data, tp_result_buffer->data, tp_allreduce_size);
                 CCUTILS_MPI_TIMER_STOP(tp_comm)
-                usleep(fwd_half);
+                usleep(mlp_fwd_rt);
                 CCUTILS_MPI_TIMER_START(tp_comm)
                 tp_communicator->Allreduce(tp_buffer->data, tp_result_buffer->data, tp_allreduce_size);
                 CCUTILS_MPI_TIMER_STOP(tp_comm)
@@ -138,11 +145,11 @@ int run_data_pipe_tensor_parallel(
             pp_communicator->recv(fwd_recv_buff->data, pipe_msg_size, stage_id-1);
             CCUTILS_MPI_TIMER_STOP(pp_comm)
             for(int l = 0; l < layers_per_stage; l++){
-                usleep(fwd_half);
+                usleep(attn_fwd_rt);
                 CCUTILS_MPI_TIMER_START(tp_comm)
                 tp_communicator->Allreduce(tp_buffer->data, tp_result_buffer->data, tp_allreduce_size);
                 CCUTILS_MPI_TIMER_STOP(tp_comm)
-                usleep(fwd_half);
+                usleep(mlp_fwd_rt);
                 CCUTILS_MPI_TIMER_START(tp_comm)
                 tp_communicator->Allreduce(tp_buffer->data, tp_result_buffer->data, tp_allreduce_size);
                 CCUTILS_MPI_TIMER_STOP(tp_comm)
@@ -153,11 +160,11 @@ int run_data_pipe_tensor_parallel(
             pp_communicator->recv(fwd_recv_buff->data, pipe_msg_size, stage_id-1);
             CCUTILS_MPI_TIMER_STOP(pp_comm)
             for(int l = 0; l < layers_per_stage; l++){
-                usleep(fwd_half);
+                usleep(attn_fwd_rt);
                 CCUTILS_MPI_TIMER_START(tp_comm)
                 tp_communicator->Allreduce(tp_buffer->data, tp_result_buffer->data, tp_allreduce_size);
                 CCUTILS_MPI_TIMER_STOP(tp_comm)
-                usleep(fwd_half);
+                usleep(mlp_fwd_rt);
                 CCUTILS_MPI_TIMER_START(tp_comm)
                 tp_communicator->Allreduce(tp_buffer->data, tp_result_buffer->data, tp_allreduce_size);
                 CCUTILS_MPI_TIMER_STOP(tp_comm)
@@ -175,11 +182,11 @@ int run_data_pipe_tensor_parallel(
             pp_communicator->recv(bwd_recv_buff->data, pipe_msg_size, stage_id+1);
             CCUTILS_MPI_TIMER_STOP(pp_comm)
             for(int l = 0; l < layers_per_stage; l++){
-                usleep(bwd_half);
+                usleep(attn_bwd_rt);
                 CCUTILS_MPI_TIMER_START(tp_comm)
                 tp_communicator->Allreduce(tp_buffer->data, tp_result_buffer->data, tp_allreduce_size);
                 CCUTILS_MPI_TIMER_STOP(tp_comm)
-                usleep(bwd_half);
+                usleep(mlp_bwd_rt);
                 CCUTILS_MPI_TIMER_START(tp_comm)
                 tp_communicator->Allreduce(tp_buffer->data, tp_result_buffer->data, tp_allreduce_size);
                 CCUTILS_MPI_TIMER_STOP(tp_comm)
@@ -187,11 +194,11 @@ int run_data_pipe_tensor_parallel(
         }
         else if(stage_id == num_stage-1){
             for(int l = 0; l < layers_per_stage; l++){
-                usleep(bwd_half);
+                usleep(attn_bwd_rt);
                 CCUTILS_MPI_TIMER_START(tp_comm)
                 tp_communicator->Allreduce(tp_buffer->data, tp_result_buffer->data, tp_allreduce_size);
                 CCUTILS_MPI_TIMER_STOP(tp_comm)
-                usleep(bwd_half);
+                usleep(mlp_bwd_rt);
                 CCUTILS_MPI_TIMER_START(tp_comm)
                 tp_communicator->Allreduce(tp_buffer->data, tp_result_buffer->data, tp_allreduce_size);
                 CCUTILS_MPI_TIMER_STOP(tp_comm)
@@ -205,11 +212,11 @@ int run_data_pipe_tensor_parallel(
             pp_communicator->recv(bwd_recv_buff->data, pipe_msg_size, stage_id+1);
             CCUTILS_MPI_TIMER_STOP(pp_comm)
             for(int l = 0; l < layers_per_stage; l++){
-                usleep(bwd_half);
+                usleep(attn_bwd_rt);
                 CCUTILS_MPI_TIMER_START(tp_comm)
                 tp_communicator->Allreduce(tp_buffer->data, tp_result_buffer->data, tp_allreduce_size);
                 CCUTILS_MPI_TIMER_STOP(tp_comm)
-                usleep(bwd_half);
+                usleep(mlp_bwd_rt);
                 CCUTILS_MPI_TIMER_START(tp_comm)
                 tp_communicator->Allreduce(tp_buffer->data, tp_result_buffer->data, tp_allreduce_size);
                 CCUTILS_MPI_TIMER_STOP(tp_comm)
@@ -300,12 +307,31 @@ int main(int argc, char* argv[]) {
     // Get model stats from file
     uint64_t fwd_rt_whole_model = model_stats["avgForwardTime"]; // in us
     uint64_t bwd_rt_whole_model = model_stats["avgBackwardTime"]; // in us
+    uint64_t ffn_fwd_rt_whole_model = model_stats["ffnForwardTime"]; // in us
+    uint64_t ffn_bwd_rt_whole_model = model_stats["ffnBackwardTime"]; // in us
+    
     uint local_batch_size = model_stats["batchSize"];
     uint64_t total_model_size = model_stats["modelSize"]; // number of parameters
     uint sequence_length = model_stats["sequenceLength"]; // sequence length
     uint embedded_dim = model_stats["embeddedDim"]; // hidden dimension size
 
     uint64_t sample_size_bytes = sequence_length * embedded_dim * sizeof(_FLOAT);
+    
+    // Calculate attention times (whole model)
+    uint64_t attn_fwd_whole_model = fwd_rt_whole_model - ffn_fwd_rt_whole_model;
+    uint64_t attn_bwd_whole_model = bwd_rt_whole_model - ffn_bwd_rt_whole_model;
+
+    // Split per stage
+    uint64_t attn_fwd_per_stage = attn_fwd_whole_model / num_stage;
+    uint64_t ffn_fwd_per_stage = ffn_fwd_rt_whole_model / num_stage;
+    uint64_t attn_bwd_per_stage = attn_bwd_whole_model / num_stage;
+    uint64_t ffn_bwd_per_stage = ffn_bwd_rt_whole_model / num_stage;
+
+    // Split per microbatch
+    uint64_t attn_fwd_per_microbatch = attn_fwd_per_stage / (num_microbatches * num_tensor_shards);
+    uint64_t ffn_fwd_per_microbatch = ffn_fwd_per_stage / (num_microbatches * num_tensor_shards);
+    uint64_t attn_bwd_per_microbatch = attn_bwd_per_stage / (num_microbatches * num_tensor_shards);
+    uint64_t ffn_bwd_per_microbatch = ffn_bwd_per_stage / (num_microbatches * num_tensor_shards);
     
     assert(world_size % (num_stage * num_tensor_shards) == 0);
     int dp_size = world_size / (num_stage * num_tensor_shards);
@@ -346,13 +372,6 @@ int main(int argc, char* argv[]) {
     
     // Verify stage_id matches pp_rank
     assert(stage_id == pp_rank);
-
-    // Compute per-stage and per-microbatch runtimes
-    uint64_t fwd_rt_per_stage = fwd_rt_whole_model / num_stage;
-    uint64_t bwd_rt_per_stage = bwd_rt_whole_model / num_stage;
-    
-    uint64_t fwd_rt_per_microbatch = fwd_rt_per_stage / (num_microbatches * num_tensor_shards);
-    uint64_t bwd_rt_per_microbatch = bwd_rt_per_stage / (num_microbatches * num_tensor_shards);
     
     // Pipeline message size: activations for batch_size/num_microbatches samples
     uint64_t samples_per_microbatch = local_batch_size / num_microbatches;
@@ -495,7 +514,8 @@ int main(int argc, char* argv[]) {
         }
         float start_time = MPI_Wtime();
         run_data_pipe_tensor_parallel(num_microbatches, stage_id, num_stage, layers_per_stage, pipe_msg_size,
-                              fwd_rt_per_microbatch, bwd_rt_per_microbatch,
+                              attn_fwd_per_microbatch, ffn_fwd_per_microbatch,
+                              attn_bwd_per_microbatch, ffn_bwd_per_microbatch,
                               grad_ptr, sum_grad_ptr, dp_allreduce_size,
                               fwd_send_buff, fwd_recv_buff, bwd_send_buff, bwd_recv_buff,
                               tp_buffer, tp_result_buffer, tp_allreduce_size,
@@ -512,7 +532,8 @@ int main(int argc, char* argv[]) {
     #ifdef PROXY_LOOP
     while(true){
         run_data_pipe_tensor_parallel(num_microbatches, stage_id, num_stage, layers_per_stage, pipe_msg_size,
-                            fwd_rt_per_microbatch, bwd_rt_per_microbatch,
+                            attn_fwd_per_microbatch, ffn_fwd_per_microbatch,
+                            attn_bwd_per_microbatch, ffn_bwd_per_microbatch,
                             grad_ptr, sum_grad_ptr, dp_allreduce_size,
                             fwd_send_buff, fwd_recv_buff, bwd_send_buff, bwd_recv_buff,
                             tp_buffer, tp_result_buffer, tp_allreduce_size,
@@ -532,7 +553,8 @@ int main(int argc, char* argv[]) {
         
         CCUTILS_MPI_TIMER_START(runtime)
         run_data_pipe_tensor_parallel(num_microbatches, stage_id, num_stage, layers_per_stage, pipe_msg_size,
-                              fwd_rt_per_microbatch, bwd_rt_per_microbatch,
+                              attn_fwd_per_microbatch, ffn_fwd_per_microbatch,
+                              attn_bwd_per_microbatch, ffn_bwd_per_microbatch,
                               grad_ptr, sum_grad_ptr, dp_allreduce_size,
                               fwd_send_buff, fwd_recv_buff, bwd_send_buff, bwd_recv_buff,
                               tp_buffer, tp_result_buffer, tp_allreduce_size,
@@ -589,8 +611,10 @@ int main(int argc, char* argv[]) {
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "global_batch_size", dp_size * local_batch_size)
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "world_size", world_size)
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "dp_size", dp_size)
-    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "fwd_rt_per_microbatch", fwd_rt_per_microbatch)
-    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "bwd_rt_per_microbatch", bwd_rt_per_microbatch)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "attn_fwd_per_microbatch", attn_fwd_per_microbatch)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "ffn_fwd_per_microbatch", ffn_fwd_per_microbatch)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "attn_bwd_per_microbatch", attn_bwd_per_microbatch)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "ffn_bwd_per_microbatch", ffn_bwd_per_microbatch)
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "total_model_size_params", total_model_size)
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "pipe_msg_size_bytes", pipe_msg_size * sizeof(_FLOAT))
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "tp_allreduce_size_bytes", tp_allreduce_size * sizeof(_FLOAT))

@@ -221,6 +221,8 @@ std::map<std::string, uint64_t> get_model_stats(std::string filename,
     model_stats["experts"]           = j["ffn"]["num_experts"].get<uint64_t>();
     model_stats["avgForwardTime"]    = (uint64_t)timing["forward_time_us"].get<double>();
     model_stats["avgBackwardTime"]   = (uint64_t)timing["backward_time_us"].get<double>();
+    model_stats["ffnForwardTime"]    = (uint64_t)timing["ffn_forward_time_us"].get<double>();
+    model_stats["ffnBackwardTime"]   = (uint64_t)timing["ffn_backward_time_us"].get<double>();
 
     return model_stats;
 }

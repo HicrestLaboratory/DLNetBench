@@ -107,8 +107,10 @@ int run_data_pipe_expert_parallel(
     int num_stage,
     int layers_per_stage,
     uint64_t pipe_msg_size,
-    uint64_t fwd_rt,
-    uint64_t bwd_rt,
+    uint64_t attn_fwd_per_microbatch,
+    uint64_t ffn_fwd_per_microbatch,
+    uint64_t attn_bwd_per_microbatch,
+    uint64_t ffn_bwd_per_microbatch,
     Tensor<_FLOAT, device>* grad_ptr,
     Tensor<_FLOAT, device>* sum_grad_ptr,
     uint64_t dp_allreduce_size,
@@ -124,10 +126,11 @@ int run_data_pipe_expert_parallel(
     ProxyCommunicator* dp_communicator,
     ProxyCommunicator* pp_communicator,
     ProxyCommunicator* ep_communicator){
-    
-    // Calculate the half-layer timings for the microbatch
-    uint64_t fwd_half = (fwd_rt / layers_per_stage) / 2;
-    uint64_t bwd_half = (bwd_rt / layers_per_stage) / 2;
+
+    uint64_t attn_fwd_rt = attn_fwd_per_microbatch / layers_per_stage;
+    uint64_t mlp_fwd_rt = ffn_fwd_per_microbatch / layers_per_stage;
+    uint64_t attn_bwd_rt = attn_bwd_per_microbatch / layers_per_stage;
+    uint64_t mlp_bwd_rt = ffn_bwd_per_microbatch / layers_per_stage;
 
     // GPipe Pipeline Schedule
     // Forward pass for all micro-batches
@@ -135,11 +138,11 @@ int run_data_pipe_expert_parallel(
         if(stage_id == 0){
             // First stage: compute then send
             for(int l = 0; l < layers_per_stage; l++){
-                usleep(fwd_half);
+                usleep(attn_fwd_rt);
                 CCUTILS_MPI_TIMER_START(ep_comm)
                 ep_communicator->Alltoall(ep_send_buffer->data, ep_alltoall_size, ep_recv_buffer->data, ep_alltoall_size);
                 CCUTILS_MPI_TIMER_STOP(ep_comm)
-                usleep(fwd_half);
+                usleep(mlp_fwd_rt);
                 CCUTILS_MPI_TIMER_START(ep_comm)
                 ep_communicator->Alltoall(ep_send_buffer->data, ep_alltoall_size, ep_recv_buffer->data, ep_alltoall_size);
                 CCUTILS_MPI_TIMER_STOP(ep_comm)
@@ -154,11 +157,11 @@ int run_data_pipe_expert_parallel(
             pp_communicator->recv(fwd_recv_buff->data, pipe_msg_size, stage_id-1);
             CCUTILS_MPI_TIMER_STOP(pp_comm)
             for(int l = 0; l < layers_per_stage; l++){
-                usleep(fwd_half);
+                usleep(attn_fwd_rt);
                 CCUTILS_MPI_TIMER_START(ep_comm)
                 ep_communicator->Alltoall(ep_send_buffer->data, ep_alltoall_size, ep_recv_buffer->data, ep_alltoall_size);
                 CCUTILS_MPI_TIMER_STOP(ep_comm)
-                usleep(fwd_half);
+                usleep(mlp_fwd_rt);
                 CCUTILS_MPI_TIMER_START(ep_comm)
                 ep_communicator->Alltoall(ep_send_buffer->data, ep_alltoall_size, ep_recv_buffer->data, ep_alltoall_size);
                 CCUTILS_MPI_TIMER_STOP(ep_comm)
@@ -170,11 +173,11 @@ int run_data_pipe_expert_parallel(
             pp_communicator->recv(fwd_recv_buff->data, pipe_msg_size, stage_id-1);
             CCUTILS_MPI_TIMER_STOP(pp_comm)
             for(int l = 0; l < layers_per_stage; l++){
-                usleep(fwd_half);
+                usleep(attn_fwd_rt);
                 CCUTILS_MPI_TIMER_START(ep_comm)
                 ep_communicator->Alltoall(ep_send_buffer->data, ep_alltoall_size, ep_recv_buffer->data, ep_alltoall_size);
                 CCUTILS_MPI_TIMER_STOP(ep_comm)
-                usleep(fwd_half);
+                usleep(mlp_fwd_rt);
                 CCUTILS_MPI_TIMER_START(ep_comm)
                 ep_communicator->Alltoall(ep_send_buffer->data, ep_alltoall_size, ep_recv_buffer->data, ep_alltoall_size);
                 CCUTILS_MPI_TIMER_STOP(ep_comm)
@@ -193,11 +196,11 @@ int run_data_pipe_expert_parallel(
             pp_communicator->recv(bwd_recv_buff->data, pipe_msg_size, stage_id+1);
             CCUTILS_MPI_TIMER_STOP(pp_comm)
             for(int l = 0; l < layers_per_stage; l++){
-                usleep(bwd_half);
+                usleep(attn_bwd_rt);
                 CCUTILS_MPI_TIMER_START(ep_comm)
                 ep_communicator->Alltoall(ep_send_buffer->data, ep_alltoall_size, ep_recv_buffer->data, ep_alltoall_size);
                 CCUTILS_MPI_TIMER_STOP(ep_comm)
-                usleep(bwd_half);
+                usleep(mlp_bwd_rt);
                 CCUTILS_MPI_TIMER_START(ep_comm)
                 ep_communicator->Alltoall(ep_send_buffer->data, ep_alltoall_size, ep_recv_buffer->data, ep_alltoall_size);
                 CCUTILS_MPI_TIMER_STOP(ep_comm)
@@ -206,11 +209,11 @@ int run_data_pipe_expert_parallel(
         else if(stage_id == num_stage-1){
             // Last stage: compute then send
             for(int l = 0; l < layers_per_stage; l++){
-                usleep(bwd_half);
+                usleep(attn_bwd_rt);
                 CCUTILS_MPI_TIMER_START(ep_comm)
                 ep_communicator->Alltoall(ep_send_buffer->data, ep_alltoall_size, ep_recv_buffer->data, ep_alltoall_size);
                 CCUTILS_MPI_TIMER_STOP(ep_comm)
-                usleep(bwd_half);
+                usleep(mlp_bwd_rt);
                 CCUTILS_MPI_TIMER_START(ep_comm)
                 ep_communicator->Alltoall(ep_send_buffer->data, ep_alltoall_size, ep_recv_buffer->data, ep_alltoall_size);
                 CCUTILS_MPI_TIMER_STOP(ep_comm)
@@ -225,11 +228,11 @@ int run_data_pipe_expert_parallel(
             pp_communicator->recv(bwd_recv_buff->data, pipe_msg_size, stage_id+1);
             CCUTILS_MPI_TIMER_STOP(pp_comm)
             for(int l = 0; l < layers_per_stage; l++){
-                usleep(bwd_half);
+                usleep(attn_bwd_rt);
                 CCUTILS_MPI_TIMER_START(ep_comm)
                 ep_communicator->Alltoall(ep_send_buffer->data, ep_alltoall_size, ep_recv_buffer->data, ep_alltoall_size);
                 CCUTILS_MPI_TIMER_STOP(ep_comm)
-                usleep(bwd_half);
+                usleep(mlp_bwd_rt);
                 CCUTILS_MPI_TIMER_START(ep_comm)
                 ep_communicator->Alltoall(ep_send_buffer->data, ep_alltoall_size, ep_recv_buffer->data, ep_alltoall_size);
                 CCUTILS_MPI_TIMER_STOP(ep_comm)
@@ -322,6 +325,10 @@ int main(int argc, char* argv[]) {
     // Get model stats from file
     uint64_t fwd_rt_whole_model = model_stats["avgForwardTime"]; // in us
     uint64_t bwd_rt_whole_model = model_stats["avgBackwardTime"]; // in us
+    uint64_t ffn_fwd_rt_whole_model = model_stats["ffnForwardTime"]; // in us
+    uint64_t ffn_bwd_rt_whole_model = model_stats["ffnBackwardTime"]; // in us
+    uint64_t attn_fwd_whole_model = fwd_rt_whole_model - ffn_fwd_rt_whole_model;
+    uint64_t attn_bwd_whole_model = bwd_rt_whole_model - ffn_bwd_rt_whole_model;
     uint local_batch_size = model_stats["batchSize"];
     uint64_t total_model_size = model_stats["modelSize"]; // number of parameters
     uint64_t sequence_length = model_stats["sequenceLength"]; // sequence length
@@ -379,11 +386,15 @@ int main(int argc, char* argv[]) {
  
 
     // Compute per-stage and per-microbatch runtimes
-    uint64_t fwd_rt_per_stage = fwd_rt_whole_model / num_stage;
-    uint64_t bwd_rt_per_stage = bwd_rt_whole_model / num_stage;
+    uint64_t attn_fwd_per_stage = attn_fwd_whole_model / num_stage;
+    uint64_t ffn_fwd_per_stage = ffn_fwd_rt_whole_model / num_stage;
+    uint64_t attn_bwd_per_stage = attn_bwd_whole_model / num_stage;
+    uint64_t ffn_bwd_per_stage = ffn_bwd_rt_whole_model / num_stage;
     
-    uint64_t fwd_rt_per_microbatch = fwd_rt_per_stage / num_microbatches;
-    uint64_t bwd_rt_per_microbatch = bwd_rt_per_stage / num_microbatches;
+    uint64_t attn_fwd_per_microbatch = attn_fwd_per_stage / num_microbatches;
+    uint64_t ffn_fwd_per_microbatch = ffn_fwd_per_stage / num_microbatches;
+    uint64_t attn_bwd_per_microbatch = attn_bwd_per_stage / num_microbatches;
+    uint64_t ffn_bwd_per_microbatch = ffn_bwd_per_stage / num_microbatches;
     
     // Pipeline message size: activations for batch_size/num_microbatches samples
     uint64_t samples_per_microbatch = local_batch_size / num_microbatches;
@@ -538,7 +549,7 @@ int main(int argc, char* argv[]) {
         }
         float start_time = MPI_Wtime();
         run_data_pipe_expert_parallel(num_microbatches, stage_id, num_stage, layers_per_stage, pipe_msg_size,
-                              fwd_rt_per_microbatch, bwd_rt_per_microbatch,
+                              attn_fwd_per_microbatch, ffn_fwd_per_microbatch, attn_bwd_per_microbatch, ffn_bwd_per_microbatch,
                               grad_ptr, sum_grad_ptr, dp_allreduce_size, non_expert_size,
                               fwd_send_buff, fwd_recv_buff, bwd_send_buff, bwd_recv_buff,
                               ep_send_buffer, ep_recv_buffer, ep_alltoall_size, num_experts,
@@ -555,7 +566,7 @@ int main(int argc, char* argv[]) {
     #ifdef PROXY_LOOP
     while(true){
         run_data_pipe_expert_parallel(num_microbatches, stage_id, num_stage, layers_per_stage, pipe_msg_size,
-                              fwd_rt_per_microbatch, bwd_rt_per_microbatch,
+                              attn_fwd_per_microbatch, ffn_fwd_per_microbatch, attn_bwd_per_microbatch, ffn_bwd_per_microbatch,
                               grad_ptr, sum_grad_ptr, dp_allreduce_size, non_expert_size,
                               fwd_send_buff, fwd_recv_buff, bwd_send_buff, bwd_recv_buff,
                               ep_send_buffer, ep_recv_buffer, ep_alltoall_size, num_experts,
@@ -573,7 +584,7 @@ int main(int argc, char* argv[]) {
         CCUTILS_MPI_TIMER_START(runtime)
         
         run_data_pipe_expert_parallel(num_microbatches, stage_id, num_stage, layers_per_stage, pipe_msg_size,
-                              fwd_rt_per_microbatch, bwd_rt_per_microbatch,
+                              attn_fwd_per_microbatch, ffn_fwd_per_microbatch, attn_bwd_per_microbatch, ffn_bwd_per_microbatch,
                               grad_ptr, sum_grad_ptr, dp_allreduce_size, non_expert_size,
                               fwd_send_buff, fwd_recv_buff, bwd_send_buff, bwd_recv_buff,
                               ep_send_buffer, ep_recv_buffer, ep_alltoall_size, num_experts,
@@ -635,8 +646,10 @@ int main(int argc, char* argv[]) {
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "global_batch_size", dp_size * num_expert_shards * local_batch_size)
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "world_size", world_size)
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "dp_size", dp_size)
-    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "fwd_rt_per_microbatch", fwd_rt_per_microbatch)
-    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "bwd_rt_per_microbatch", bwd_rt_per_microbatch)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "attn_fwd_rt_per_microbatch_us", attn_fwd_per_microbatch)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "ffn_fwd_rt_per_microbatch_us", ffn_fwd_per_microbatch)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "attn_bwd_rt_per_microbatch_us", attn_bwd_per_microbatch)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "ffn_bwd_rt_per_microbatch_us", ffn_bwd_per_microbatch)
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "total_model_size_params", total_model_size)
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "pipe_msg_size_bytes", pipe_msg_size * sizeof(_FLOAT))
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "ep_alltoall_size_bytes", ep_alltoall_size * sizeof(_FLOAT))

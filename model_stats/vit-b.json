@@ -14,19 +14,27 @@
       "bfloat16": {
         "16": {
           "forward_time_us": 1789.48,
-          "backward_time_us": 3578.97
+          "backward_time_us": 3578.97,
+          "ffn_forward_time_us": 7.45,
+          "ffn_backward_time_us": 14.90
         },
         "32": {
           "forward_time_us": 3578.97,
-          "backward_time_us": 7157.93
+          "backward_time_us": 7157.93,
+          "ffn_forward_time_us": 14.90,
+          "ffn_backward_time_us": 29.79
         },
         "64": {
           "forward_time_us": 7157.93,
-          "backward_time_us": 14315.86
+          "backward_time_us": 14315.86,
+          "ffn_forward_time_us": 29.79,
+          "ffn_backward_time_us": 59.58
         },
         "128": {
           "forward_time_us": 14315.86,
-          "backward_time_us": 28631.72
+          "backward_time_us": 28631.72,
+          "ffn_forward_time_us": 59.58,
+          "ffn_backward_time_us": 119.15
         }
       }
     },
@@ -34,37 +42,53 @@
       "bfloat16": {
         "16": {
           "forward_time_us": 282.12,
-          "backward_time_us": 564.24
+          "backward_time_us": 564.24,
+          "ffn_forward_time_us": 1.17,
+          "ffn_backward_time_us": 2.35
         },
         "32": {
           "forward_time_us": 564.24,
-          "backward_time_us": 1128.49
+          "backward_time_us": 1128.49,
+          "ffn_forward_time_us": 2.35,
+          "ffn_backward_time_us": 4.70
         },
         "64": {
           "forward_time_us": 1128.49,
-          "backward_time_us": 2256.97
+          "backward_time_us": 2256.97,
+          "ffn_forward_time_us": 4.70,
+          "ffn_backward_time_us": 9.39
         },
         "128": {
           "forward_time_us": 2256.97,
-          "backward_time_us": 4513.94
+          "backward_time_us": 4513.94,
+          "ffn_forward_time_us": 9.39,
+          "ffn_backward_time_us": 18.78
         }
       },
       "float8": {
         "16": {
           "forward_time_us": 141.06,
-          "backward_time_us": 282.12
+          "backward_time_us": 282.12,
+          "ffn_forward_time_us": 0.59,
+          "ffn_backward_time_us": 1.18
         },
         "32": {
           "forward_time_us": 282.12,
-          "backward_time_us": 564.24
+          "backward_time_us": 564.24,
+          "ffn_forward_time_us": 1.17,
+          "ffn_backward_time_us": 2.35
         },
         "64": {
           "forward_time_us": 564.24,
-          "backward_time_us": 1128.49
+          "backward_time_us": 1128.49,
+          "ffn_forward_time_us": 2.35,
+          "ffn_backward_time_us": 4.70
         },
         "128": {
           "forward_time_us": 1128.49,
-          "backward_time_us": 2256.97
+          "backward_time_us": 2256.97,
+          "ffn_forward_time_us": 4.70,
+          "ffn_backward_time_us": 9.39
         }
       }
     },
@@ -72,37 +96,53 @@
       "bfloat16": {
         "16": {
           "forward_time_us": 248.14,
-          "backward_time_us": 496.28
+          "backward_time_us": 496.28,
+          "ffn_forward_time_us": 1.03,
+          "ffn_backward_time_us": 2.07
         },
         "32": {
           "forward_time_us": 496.28,
-          "backward_time_us": 992.57
+          "backward_time_us": 992.57,
+          "ffn_forward_time_us": 2.07,
+          "ffn_backward_time_us": 4.13
         },
         "64": {
           "forward_time_us": 992.57,
-          "backward_time_us": 1985.13
+          "backward_time_us": 1985.13,
+          "ffn_forward_time_us": 4.13,
+          "ffn_backward_time_us": 8.26
         },
         "128": {
           "forward_time_us": 1985.13,
-          "backward_time_us": 3970.27
+          "backward_time_us": 3970.27,
+          "ffn_forward_time_us": 8.26,
+          "ffn_backward_time_us": 16.52
         }
       },
       "float8": {
         "16": {
           "forward_time_us": 124.07,
-          "backward_time_us": 248.14
+          "backward_time_us": 248.14,
+          "ffn_forward_time_us": 0.52,
+          "ffn_backward_time_us": 1.03
         },
         "32": {
           "forward_time_us": 248.14,
-          "backward_time_us": 496.28
+          "backward_time_us": 496.28,
+          "ffn_forward_time_us": 1.03,
+          "ffn_backward_time_us": 2.07
         },
         "64": {
           "forward_time_us": 496.28,
-          "backward_time_us": 992.57
+          "backward_time_us": 992.57,
+          "ffn_forward_time_us": 2.07,
+          "ffn_backward_time_us": 4.13
         },
         "128": {
           "forward_time_us": 992.57,
-          "backward_time_us": 1985.13
+          "backward_time_us": 1985.13,
+          "ffn_forward_time_us": 4.13,
+          "ffn_backward_time_us": 8.26
         }
       }
     }
