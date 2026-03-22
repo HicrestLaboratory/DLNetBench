@@ -78,6 +78,7 @@ _build: $(DP_BINS) $(HYBRID_BINS)
 	@$(if $(ENERGY_PROFILER_HOME),echo "   ENERGY_PROFILER_HOME = $(ENERGY_PROFILER_HOME)")
 	@echo ""
 	@echo "  CXXFLAGS: $(_CXXFLAGS)"
+	@echo "  EXTRA:    $(EXTRA_CXXFLAGS_$(CONFIG))"
 	@echo "  LDFLAGS:  $(_LDFLAGS)"
 	@echo "  LDLIBS:   $(_LDLIBS)"
 	@echo "--------------------------------------------------------"

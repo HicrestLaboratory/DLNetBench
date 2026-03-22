@@ -124,6 +124,10 @@ LDLIBS_$(1)   += $(if $(filter 1,$(WITH_ENERGY_PROFILER_$(1))),\
     $(if $(ENERGY_PROFILER_HOME),-lpower_profiler))
 
 LDLIBS_$(1)   += -lpthread -ldl
+
+CXXFLAGS_$(1) += $$(EXTRA_CXXFLAGS_$(1))
+LDFLAGS_$(1)  += $$(EXTRA_LDFLAGS_$(1))
+LDLIBS_$(1)   += $$(EXTRA_LDLIBS_$(1))
 endef
 
 # Instantiate for every declared config
