@@ -1,0 +1,32 @@
+# -------------------------
+# Makefile.ALPS
+# Jupiter (Juelich) - OpenMPIv5.0.8 CUDAv13 NCCLv2.29
+# -------------------------
+
+CXX := nvcc
+
+# -- System paths (CUDA auto-detected from nvcc; NCCL_HOME from environment) --
+# Override if auto-detection fails:
+CUDA_HOME := /e/software/default/stages/2026/software/CUDA/13
+NCCL_HOME := /e/software/default/stages/2026/software/NCCL/default-GCCcore-14.3.0-CUDA-13
+MPI_HOME := /e/software/default/stages/2026/software/OpenMPI/5.0.8-nvidia-compilers-25.9-CUDA-13
+
+# -------------------------------------------------------
+# Config: nccl
+#   CUDA buffers + NCCL collectives
+# -------------------------------------------------------
+CONFIGS += nccl
+BACKEND_nccl := nccl
+EXTRA_CXXFLAGS_nccl := -arch=sm_90
+
+# -------------------------------------------------------
+# Config: mpi_gpu_cuda
+#   CUDA buffers, MPI collectives only (no NCCL)
+# -------------------------------------------------------
+# CONFIGS += mpi_gpu_cuda
+# BACKEND_mpi_gpu_cuda := mpi_gpu_cuda
+# EXTRA_CXXFLAGS_mpi_gpu_cuda := -arch=sm_90
+
+
+include Makefile.flags.mk
+include Makefile.common
