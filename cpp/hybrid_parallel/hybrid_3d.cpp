@@ -598,7 +598,16 @@ int main(int argc, char* argv[]) {
     char host_name[MPI_MAX_PROCESSOR_NAME];
     int namelen;
     MPI_Get_processor_name(host_name, &namelen);
+
+    int total_runtime=0;
+    if(rank == 0){
+        for(int run: __timer_vals_runtime){
+            total_runtime += run;
+        }
+    }
     
+    MPI_Barrier(MPI_COMM_WORLD);
+    int start_log_time = MPI_Wtime();
     CCUTILS_MPI_SECTION_DEF(dp_pp_tp, "Data + Pipeline + Tensor Parallelism")
     
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "model_name", model_name)
@@ -623,6 +632,7 @@ int main(int argc, char* argv[]) {
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "backend", dp_communicator->get_name())
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "GPU model", args.gpu)
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "data_type", args.dtype)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "benchmark_runtime", total_runtime)
 
     CCUTILS_SECTION_JSON_PUT(dp_pp_tp, "runtimes", __timer_vals_runtime);
     //compute trhoughput per runtime (samples/s)
@@ -640,6 +650,8 @@ int main(int argc, char* argv[]) {
     CCUTILS_SECTION_JSON_PUT(dp_pp_tp, "tp_id", tp_id);
     CCUTILS_SECTION_JSON_PUT(dp_pp_tp, "dp_id", dp_id);
     CCUTILS_MPI_SECTION_END(dp_pp_tp);
+    int end_log_time = MPI_Wtime();
+    CCUTILS_MPI_PRINT_ONCE(std::cout << "Logging time: " << (end_log_time - start_log_time) << " seconds\n";)
     #endif
     
 #ifdef PROXY_ENABLE_CCL

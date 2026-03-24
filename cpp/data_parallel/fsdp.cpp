@@ -438,6 +438,16 @@ int main(int argc, char* argv[]) {
 	int namelen,bytes,n,color;
 	MPI_Get_processor_name(host_name,&namelen);
 
+    int total_runtime=0;
+    if(rank == 0){
+        for(int run: __timer_vals_runtime){
+            total_runtime += run;
+        }
+    }
+
+    MPI_Barrier(MPI_COMM_WORLD);
+    int start_log_time = MPI_Wtime();
+
     // Use CCUTILS sections to print
     CCUTILS_MPI_SECTION_DEF(fsdp, "FSDP metrics")
     CCUTILS_SECTION_JSON_PUT(fsdp, "runtime", __timer_vals_runtime)
@@ -471,7 +481,7 @@ int main(int argc, char* argv[]) {
     CCUTILS_MPI_GLOBAL_JSON_PUT(fsdp, "bwd_time_per_unit_us", bwd_rt_whole_unit)
     CCUTILS_MPI_GLOBAL_JSON_PUT(fsdp, "dtype", args.dtype)
     CCUTILS_MPI_GLOBAL_JSON_PUT(fsdp, "GPU model", args.gpu)
-
+    CCUTILS_MPI_GLOBAL_JSON_PUT(fsdp, "benchmark_runtime", total_runtime)
     // allgather and reducescatter msg_size
     // Since all units are equal
     uint64_t allgather_msg_size = max_params_per_shard[0] * sharding_factor * sizeof(_FLOAT);
@@ -488,6 +498,8 @@ int main(int argc, char* argv[]) {
         CCUTILS_MPI_GLOBAL_JSON_PUT(fsdp, "allreduce_msg_size_bytes", allreduce_msg_size)
 
     CCUTILS_MPI_SECTION_END(fsdp)
+    int end_log_time = MPI_Wtime();
+    CCUTILS_MPI_PRINT_ONCE(std::cout << "Logging time: " << (end_log_time - start_log_time) << " seconds\n";)
     #endif
 
     #ifdef PROXY_ENABLE_CLL

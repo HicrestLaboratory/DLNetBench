@@ -297,6 +297,16 @@ int main(int argc, char* argv[]) {
                                    params_per_bucket + num_buckets);
     std::pair<float, float> msg_stats = compute_msg_stats(bucket_sizes, 1);
 
+    int total_runtime=0;
+    if(rank == 0){
+        for(int run: __timer_vals_runtime){
+            total_runtime += run;
+        }
+    }
+
+    MPI_Barrier(MPI_COMM_WORLD);
+    int start_log_time = MPI_Wtime();
+
     CCUTILS_MPI_SECTION_DEF(dp, "Data Parallelism")
     float msg_size_avg = msg_stats.first;
     float msg_size_std = msg_stats.second;
@@ -312,6 +322,7 @@ int main(int argc, char* argv[]) {
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "data_type", args.dtype)
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "device", (device == Device::CPU) ? "CPU" : "GPU")
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "backend", communicator->get_name())
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "benchmark_runtime", total_runtime)
 
     //erase warm-up elemements
     CCUTILS_SECTION_JSON_PUT(dp, "runtimes", __timer_vals_runtime);
@@ -328,6 +339,8 @@ int main(int argc, char* argv[]) {
     CCUTILS_SECTION_JSON_PUT(dp, "hostname", host_name);
 
     CCUTILS_MPI_SECTION_END(dp);
+    int end_log_time = MPI_Wtime();
+    CCUTILS_MPI_PRINT_ONCE(std::cout << "Logging time: " << (end_log_time - start_log_time) << " seconds\n";)
     #endif
 	
     #ifdef PROXY_ENABLE_CLL

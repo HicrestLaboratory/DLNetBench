@@ -482,6 +482,16 @@ int main(int argc, char* argv[]) {
     int namelen;
     MPI_Get_processor_name(host_name, &namelen);
     
+    int total_runtime=0;
+    if(rank == 0){
+        for(int run: __timer_vals_runtime){
+            total_runtime += run;
+        }
+    }
+
+    MPI_Barrier(MPI_COMM_WORLD);
+    int start_log_time = MPI_Wtime();
+    
     CCUTILS_MPI_SECTION_DEF(dp_pp, "Data + Pipeline Parallelism")
     
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp, "model_name", model_name)
@@ -501,6 +511,7 @@ int main(int argc, char* argv[]) {
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp, "backend", dp_communicator->get_name())
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp, "dtype", args.dtype)
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp, "GPU model", args.gpu)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp, "total_runtime", total_runtime)
     
     CCUTILS_SECTION_JSON_PUT(dp_pp, "runtimes", __timer_vals_runtime);
     // compute throughput per runtime (samples/s)
@@ -515,6 +526,8 @@ int main(int argc, char* argv[]) {
     CCUTILS_SECTION_JSON_PUT(dp_pp, "hostname", host_name);
     CCUTILS_SECTION_JSON_PUT(dp_pp, "stage_id", stage_id);
     CCUTILS_MPI_SECTION_END(dp_pp);
+    int end_log_time = MPI_Wtime();
+    CCUTILS_MPI_PRINT_ONCE(std::cout << "Logging time: " << (end_log_time - start_log_time) << " seconds\n";)
     #endif
     
 #ifdef PROXY_ENABLE_CCL
