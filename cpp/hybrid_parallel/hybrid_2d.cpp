@@ -51,6 +51,8 @@ Proxy_CommType world_comm;
 Proxy_CommType world_comm;
 #endif
 
+bool CCS = false;
+
 // Device to use
 #if defined(PROXY_ENABLE_CUDA) || defined(PROXY_ENABLE_HIP) || defined(PROXY_ENABLE_ONECCL)
 constexpr Device device = Device::GPU;
@@ -105,7 +107,11 @@ int run_data_pipe_parallel(
     ProxyCommunicator* pp_communicator){
     // GPipe Pipeline Schedule
     // Forward pass for all micro-batches
+    CCUTILS_MPI_INIT
     for(int i = 0; i < num_microbatches; i++){
+        if(CCS){
+            CCUTILS_MPI_ALL_PRINT(fprintf(fp, "Stage %d starting forward pass for micro-batch %d\n", stage_id, i);)
+        }
         if(stage_id == 0){
             // First stage: compute then send
             usleep(fwd_rt);
@@ -134,6 +140,9 @@ int run_data_pipe_parallel(
     
     // Backward pass for all micro-batches
     for(int i = 0; i < num_microbatches; i++){
+        if(CCS){
+            CCUTILS_MPI_ALL_PRINT(fprintf(fp, "Stage %d starting backward pass for micro-batch %d\n", stage_id, i);)
+        }
         if(stage_id == 0){
             // First stage: receive then compute
             CCUTILS_MPI_TIMER_START(pp_comm)
@@ -161,6 +170,9 @@ int run_data_pipe_parallel(
     }
     
     // Data-parallel all-reduce for accumulated gradients
+    if(CCS){
+        CCUTILS_MPI_ALL_PRINT(fprintf(fp, "Stage %d starting data-parallel all-reduce\n", stage_id);)
+    }
     CCUTILS_MPI_TIMER_START(dp_comm)
     dp_communicator->Allreduce(grad_ptr->data, sum_grad_ptr->data, dp_allreduce_size);
     CCUTILS_MPI_TIMER_STOP(dp_comm)
@@ -187,6 +199,7 @@ int run_data_pipe_parallel(
     BOOLEAN_ARG(help, "-h", "Show help") \
     BOOLEAN_ARG(print_topology, "-p", "Print topology graph") \
     BOOLEAN_ARG(print_devices_ids, "-pd", "Print device IDs") \
+    BOOLEAN_ARG(use_ccs, "-ccs", "Use CUDA Collective Streams (CCS) if available")
 
 #include <ccutils/easyargs.hpp>
 
@@ -220,7 +233,7 @@ int main(int argc, char* argv[]) {
     std::string base_path = args.base_path;
     uint warmup = args.warmup;
     uint runs = args.runs;
-    
+    CCS = args.use_ccs;
     // --- Construct model stats file path ---
     fs::path repo_path = get_dnnproxy_base_path(args.base_path);
     fs::path file_path = repo_path / "model_stats" / (model_name + ".json");
@@ -258,6 +271,14 @@ int main(int argc, char* argv[]) {
     
     // DP all-reduce size (gradients for parameters in this stage)
     uint64_t dp_allreduce_size = total_model_size / num_stage;
+
+    if(CCS){
+        CCUTILS_MPI_ALL_PRINT(fprintf(fp, "Model: %s, Total Model Size: %lu, Sequence Length: %lu, Embedded Dim: %lu\n", 
+                            model_name.c_str(), total_model_size, sequence_length, embedded_dim);)
+        CCUTILS_MPI_ALL_PRINT(fprintf(fp, "Pipeline stages: %d, Microbatches: %d\n", num_stage, num_microbatches);)
+        CCUTILS_MPI_ALL_PRINT(fprintf(fp, "Forward time per microbatch per stage (us): %lu\n", fwd_rt_per_microbatch);)
+        CCUTILS_MPI_ALL_PRINT(fprintf(fp, "Backward time per microbatch per stage (us): %lu\n", bwd_rt_per_microbatch);)
+    }
     
     if(args.print_topology)
         print_topology_graph(MPI_COMM_WORLD);
@@ -279,6 +300,10 @@ int main(int argc, char* argv[]) {
     int dp_rank, pp_rank;
     MPI_Comm_rank(dp_comm, &dp_rank);
     MPI_Comm_rank(pp_comm, &pp_rank);
+
+    if(CCS){
+        CCUTILS_MPI_ALL_PRINT(fprintf(fp, "Process %d: DP rank %d/%d, PP rank %d/%d\n", rank, dp_rank, dp_size, pp_rank, world_size/num_stage);)
+    }
     
     int stage_id = pp_rank; // stage ID is the rank in PP communicator
 
@@ -412,6 +437,7 @@ int main(int argc, char* argv[]) {
     __timer_vals_dp_comm.clear();
     std::vector<float> merged_pp_all; // to hold merged PP comm times for middle stages
     for(int iter = 0; iter < runs; iter++){
+        CCUTILS_MPI_PRINT_ONCE(printf("Starting iteration %d\n", iter);)
         CCUTILS_MPI_TIMER_START(runtime)
         run_data_pipe_parallel(num_microbatches, stage_id, num_stage, pipe_msg_size,
                               fwd_rt_per_microbatch, bwd_rt_per_microbatch,
