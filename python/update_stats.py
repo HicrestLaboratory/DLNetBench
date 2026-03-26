@@ -9,48 +9,54 @@ import argparse
 GPU_SPECS = {
     "A100": {
         "peak_flops": {
-            "bfloat16": 0.312e15,   # 312 TFLOPS (BF16 Tensor Core, SXM 80GB)
+            "bfloat16": 0.312e15,   # 312 TFLOPS (BF16 Tensor Core, Dense)
         },
         "bandwidth": 2.0e12,        # 2.0 TB/s (A100 SXM 80GB HBM2e)
     },
     "H200": {
         "peak_flops": {
-            "bfloat16": 1.979e15,   # 1,979 TFLOPS (BF16 Tensor Core, SXM)
-            "float8":   3.958e15,   # 3,958 TFLOPS (FP8 Tensor Core, SXM)
+            "bfloat16": 0.989e15,   # 989 TFLOPS (BF16 Tensor Core, Dense)
+            "float8":   1.979e15,   # 1,979 TFLOPS (FP8 Tensor Core, Dense)
         },
         "bandwidth": 4.8e12,        # 4.8 TB/s (HBM3e)
     },
     "B200": {
         "peak_flops": {
-            "bfloat16": 2.25e15,    # 2.25 PFLOPS
-            "float8":   4.5e15,     # 4.50 PFLOPS
-            "float4":   9.0e15      # 9.00 PFLOPS
+            "bfloat16": 2.25e15,    # 2.25 PFLOPS (BF16 Tensor Core, Dense)
+            "float8":   4.50e15,    # 4.50 PFLOPS (FP8 Tensor Core, Dense)
+            "float4":   9.00e15     # 9.00 PFLOPS (FP4 Tensor Core, Dense)
         },
-        "bandwidth": 8.0e12,        # 8.0 TB/s
+        "bandwidth": 8.0e12,        # 8.0 TB/s (HBM3e)
+    },
+    "GH200": {
+        "peak_flops": {
+            "bfloat16": 0.990e15,   # 990 TFLOPS (BF16 Tensor Core, Dense)
+            "float8":   1.979e15,   # 1,979 TFLOPS (FP8 Tensor Core, Dense)
+        },
+        "bandwidth": 4e12,        # 4 TB/s (HBM3)
     },
     "H100": {
         "peak_flops": {
-            "bfloat16": 1.671e15,     # 1,671 TFLOPS (BF16 Tensor Core)
-            "float8":   3.341e15,     # 3,341 TFLOPS (FP8 Tensor Core)
+            "bfloat16": 0.989e15,   # 989 TFLOPS (BF16 Tensor Core, Dense, SXM)
+            "float8":   1.979e15,   # 1,979 TFLOPS (FP8 Tensor Core, Dense, SXM)
         },
-        "bandwidth": 3.9e12,        # 3.9 TB/s (HBM3)
+        "bandwidth": 3.35e12,       # 3.35 TB/s (H100 SXM5 HBM3)
     },
     "MI250X": {
         "peak_flops": {
-            "bfloat16": 0.383e15,     # 0.383 PFLOPS (BF16 Matrix Core)
+            "bfloat16": 0.383e15,   # 0.383 PFLOPS (BF16 Matrix Core, Dense)
         },
         "bandwidth": 3.2e12,        # 3.2 TB/s (HBM2e)
     },
     "B300": {
         "peak_flops": {
-            "bfloat16": 3.75e15,    # 3.75 PFLOPS (Dense)
-            "float8":   7.5e15,     # 7.50 PFLOPS (Dense)
-            "float4":   15.0e15     # 15.00 PFLOPS (Dense)
+            "bfloat16": 3.50e15,    # 3.50 PFLOPS (BF16 Tensor Core, Dense)
+            "float8":   7.00e15,    # 7.00 PFLOPS (FP8 Tensor Core, Dense)
+            "float4":   14.0e15     # 14.0 PFLOPS (FP4 Tensor Core, Dense)
         },
-        "bandwidth": 8.0e12,        # 8.0 TB/s
+        "bandwidth": 8.0e12,        # 8.0 TB/s (HBM3e)
     }
 }
-
 BATCH_SIZES = [16, 32, 64, 128]
 
 # ------------------------------
