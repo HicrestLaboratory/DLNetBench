@@ -214,7 +214,7 @@ std::map<std::string, uint64_t> get_model_stats(std::string filename,
 
     std::map<std::string, uint64_t> model_stats;
     model_stats["modelSize"]         = j["model_size"].get<uint64_t>();
-    model_stats["nonExpertModelSize"]= j["model_size"].get<uint64_t>();
+    model_stats["nonExpertModelSize"]= j["non_expert_size"].get<uint64_t>();
     model_stats["sequenceLength"]    = j["seq_len"].get<uint64_t>();
     model_stats["embeddedDim"]       = j["embedded_dim"].get<uint64_t>();
     model_stats["batchSize"]         = batch_size;

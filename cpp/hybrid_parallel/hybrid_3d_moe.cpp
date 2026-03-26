@@ -330,7 +330,7 @@ int main(int argc, char* argv[]) {
     uint64_t attn_fwd_whole_model = fwd_rt_whole_model - ffn_fwd_rt_whole_model;
     uint64_t attn_bwd_whole_model = bwd_rt_whole_model - ffn_bwd_rt_whole_model;
     uint local_batch_size = model_stats["batchSize"];
-    uint64_t total_model_size = 46702792704; //model_stats["modelSize"]; // number of parameters
+    uint64_t total_model_size = model_stats["modelSize"]; // number of parameters
     uint64_t sequence_length = model_stats["sequenceLength"]; // sequence length
     uint64_t embedded_dim = model_stats["embeddedDim"]; // hidden dimension size
     uint64_t non_expert_model_size = model_stats["nonExpertModelSize"]; // size of non-expert parameters
