@@ -25,7 +25,7 @@ EXTRA_CXXFLAGS_nccl := -arch=sm_80
 # -------------------------------------------------------
 CONFIGS += mpi_gpu_cuda
 BACKEND_mpi_gpu_cuda := mpi_gpu_cuda
-# EXTRA_CXXFLAGS_mpi_gpu_cuda := -arch=sm_80
+EXTRA_CXXFLAGS_mpi_gpu_cuda := -arch=sm_80
 
 # -------------------------------------------------------
 # Includes

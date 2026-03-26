@@ -28,9 +28,9 @@ EXTRA_CXXFLAGS_nccl := -arch=sm_90
 # Config: mpi_gpu_cuda
 #   CUDA buffers, MPI collectives only (no NCCL)
 # -------------------------------------------------------
-# CONFIGS += mpi_gpu_cuda
-# BACKEND_mpi_gpu_cuda := mpi_gpu_cuda
-# EXTRA_CXXFLAGS_mpi_gpu_cuda := -arch=sm_90
+CONFIGS += mpi_gpu_cuda
+BACKEND_mpi_gpu_cuda := mpi_gpu_cuda
+EXTRA_CXXFLAGS_mpi_gpu_cuda := -arch=sm_90
 
 
 include Makefile.flags.mk
