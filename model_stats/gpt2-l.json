@@ -467,6 +467,86 @@
           "ffn_backward_time_us": 25769.8
         }
       }
+    },
+    "GB200": {
+      "bfloat16": {
+        "16": {
+          "forward_time_us": 10952.17,
+          "backward_time_us": 21904.33,
+          "ffn_forward_time_us": 6442.45,
+          "ffn_backward_time_us": 12884.9
+        },
+        "32": {
+          "forward_time_us": 21904.33,
+          "backward_time_us": 43808.67,
+          "ffn_forward_time_us": 12884.9,
+          "ffn_backward_time_us": 25769.8
+        },
+        "64": {
+          "forward_time_us": 43808.67,
+          "backward_time_us": 87617.33,
+          "ffn_forward_time_us": 25769.8,
+          "ffn_backward_time_us": 51539.61
+        },
+        "128": {
+          "forward_time_us": 87617.33,
+          "backward_time_us": 175234.67,
+          "ffn_forward_time_us": 51539.61,
+          "ffn_backward_time_us": 103079.22
+        }
+      },
+      "float8": {
+        "16": {
+          "forward_time_us": 5476.08,
+          "backward_time_us": 10952.17,
+          "ffn_forward_time_us": 3221.23,
+          "ffn_backward_time_us": 6442.45
+        },
+        "32": {
+          "forward_time_us": 10952.17,
+          "backward_time_us": 21904.33,
+          "ffn_forward_time_us": 6442.45,
+          "ffn_backward_time_us": 12884.9
+        },
+        "64": {
+          "forward_time_us": 21904.33,
+          "backward_time_us": 43808.67,
+          "ffn_forward_time_us": 12884.9,
+          "ffn_backward_time_us": 25769.8
+        },
+        "128": {
+          "forward_time_us": 43808.67,
+          "backward_time_us": 87617.33,
+          "ffn_forward_time_us": 25769.8,
+          "ffn_backward_time_us": 51539.61
+        }
+      },
+      "float4": {
+        "16": {
+          "forward_time_us": 232.98,
+          "backward_time_us": 465.96,
+          "ffn_forward_time_us": 123.86,
+          "ffn_backward_time_us": 247.73
+        },
+        "32": {
+          "forward_time_us": 421.72,
+          "backward_time_us": 843.45,
+          "ffn_forward_time_us": 218.23,
+          "ffn_backward_time_us": 436.47
+        },
+        "64": {
+          "forward_time_us": 799.21,
+          "backward_time_us": 1598.42,
+          "ffn_forward_time_us": 406.98,
+          "ffn_backward_time_us": 813.96
+        },
+        "128": {
+          "forward_time_us": 1554.19,
+          "backward_time_us": 3108.37,
+          "ffn_forward_time_us": 784.47,
+          "ffn_backward_time_us": 1568.93
+        }
+      }
     }
   },
   "non_expert_size": 774030080
