@@ -55,6 +55,14 @@ GPU_SPECS = {
             "float4":   14.0e15     # 14.0 PFLOPS (FP4 Tensor Core, Dense)
         },
         "bandwidth": 8.0e12,        # 8.0 TB/s (HBM3e)
+    },
+    "GB300": {
+        "peak_flops": {
+            "bfloat16": 2.40e15,    # 2.40 PFLOPS (BF16 Tensor Core, Dense)
+            "float8":   4.80e15,    # 4.80 PFLOPS (FP8 Tensor Core, Dense)
+            "float4":   9.60e15     # 9.60 PFLOPS (FP4 Tensor Core, Dense)
+        },
+        "bandwidth": 7.35e12,        # 7.35 TB/s (HBM3e)
     }
 }
 BATCH_SIZES = [16, 32, 64, 128]
