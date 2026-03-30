@@ -210,8 +210,10 @@ int main(int argc, char* argv[]) {
     int num_microbatches;
 
 #ifdef PROXY_ENABLE_ONECCL
-    int provided;
-    MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided);
+    ccl::init();
+    MPI_Init(nullptr, nullptr);
+    //int provided;
+    //MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided);
 #else
     MPI_Init(&argc, &argv);
 #endif

@@ -68,7 +68,6 @@ Proxy_CommType world_comm;
 
 CCUTILS_MPI_TIMER_DEF(runtime)
 CCUTILS_MPI_TIMER_DEF(barrier)
-CCUTILS_MPI_TIMER_DEF(comm_time)
 
 /**
  * @brief Simulates one iteration of data-parallel (using bucketing approach) training for a Transformer model.
@@ -97,16 +96,12 @@ int run_data_parallel(Tensor<_FLOAT, device>** grad_ptrs, Tensor<_FLOAT, device>
     int index, flag;
     for(int i=0; i<num_buckets; i++){
         usleep(bwd_rt_per_B); //compute backward of a bucket 
-        if(i > 0){
-            CCUTILS_MPI_TIMER_START(comm_time)
-        }
         communicator->Iallreduce(grad_ptrs[i]->data, sum_grad_ptrs[i]->data, params_per_bucket[i], i); //start all-reduce for the bucket
     }
 
     CCUTILS_MPI_TIMER_START(barrier)
     communicator->WaitAll(num_buckets); //wait for all all-reduce to complete
-    CCUTILS_MPI_TIMER_STOP(barrier)
-    CCUTILS_MPI_TIMER_STOP(comm_time) 
+    CCUTILS_MPI_TIMER_STOP(barrier) 
     return 0;
 }
 
@@ -134,8 +129,10 @@ int run_data_parallel(Tensor<_FLOAT, device>** grad_ptrs, Tensor<_FLOAT, device>
 
 int main(int argc, char* argv[]) {
 #ifdef PROXY_ENABLE_ONECCL
-   int provided;
-    MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided);
+    ccl::init();
+    MPI_Init(nullptr, nullptr);
+       	// int provided:
+    //MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided);
 #else 
     MPI_Init(&argc,&argv);
 #endif
@@ -210,7 +207,7 @@ int main(int argc, char* argv[]) {
     sycl::context ctx = queue.get_context();
 
     // Initialize oneCCL
-    ccl::init();
+    //ccl::init();
 
     // Create KVS (acts like ncclUniqueId)
     ccl::shared_ptr_class<ccl::kvs> kvs;
@@ -327,7 +324,6 @@ int main(int argc, char* argv[]) {
     //erase warm-up elemements
     CCUTILS_SECTION_JSON_PUT(dp, "runtimes", __timer_vals_runtime);
     CCUTILS_SECTION_JSON_PUT(dp, "barrier_time", __timer_vals_barrier);
-    CCUTILS_SECTION_JSON_PUT(dp, "comm_time", __timer_vals_comm_time);
     // compute throughput per runtime (samples/s)
     std::vector<float> throughputs;
     for(float rt : __timer_vals_runtime){

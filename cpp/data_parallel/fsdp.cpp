@@ -189,8 +189,10 @@ void run_fsdp(Tensor<_FLOAT, device>** shard_params,
 
 int main(int argc, char* argv[]) {
 #ifdef PROXY_ENABLE_ONECCL
-    int provided;
-    MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided);
+	ccl::init();
+	MPI_Init(nullptr, nullptr);
+	//int provided;
+    //MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided);
 #else
     MPI_Init(&argc, &argv);
 #endif
@@ -291,8 +293,6 @@ int main(int argc, char* argv[]) {
     CCLCommunicator* unit_comm_proxy = new CCLCommunicator(unit_nccl_comm, num_units);
     CCLCommunicator* allreduce_comm_proxy = new CCLCommunicator(allreduce_nccl_comm, num_units);  
 #elif defined(PROXY_ENABLE_ONECCL)
-    ccl::init();
-
     int unit_rank, unit_size;
     MPI_Comm_rank(unit_comm, &unit_rank);
     MPI_Comm_size(unit_comm, &unit_size);
