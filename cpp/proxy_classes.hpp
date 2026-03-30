@@ -255,59 +255,72 @@ private:
 #ifdef PROXY_ENABLE_ONECCL
 class OneCCLCommunicator : public ProxyCommunicator {
 public:
-    OneCCLCommunicator(ccl::communicator&& comm_in, sycl::context ctx, sycl::device dev, int num_streams = 1)
-        : comm(std::move(comm_in)), num_streams(num_streams)
+    OneCCLCommunicator(ccl::communicator&& comm_in, sycl::context ctx, sycl::device dev, size_t num_streams = 1)
+        : comm(std::move(comm_in)), num_streams(num_streams), allreduce_attr(ccl::create_operation_attr<ccl::allreduce_attr>())
+    , allgather_attr(ccl::create_operation_attr<ccl::allgatherv_attr>())
+    , reduce_scatter_attr(ccl::create_operation_attr<ccl::reduce_scatter_attr>())
+    , alltoall_attr(ccl::create_operation_attr<ccl::alltoall_attr>())
+    , barrier_attr(ccl::create_operation_attr<ccl::barrier_attr>())
     {
         // create one queue per stream
-        events.resize(num_streams);
+	allreduce_attr.set<ccl::operation_attr_id::to_cache>(true);
+	allgather_attr.set<ccl::operation_attr_id::to_cache>(true);
+	reduce_scatter_attr.set<ccl::operation_attr_id::to_cache>(true);
+	barrier_attr.set<ccl::operation_attr_id::to_cache>(true);
+	alltoall_attr.set<ccl::operation_attr_id::to_cache>(true);
+	events.resize(num_streams);
         ccl_streams.reserve(num_streams);
         for (int i = 0; i < num_streams; i++) {
-            sycl::queue tmp_queue(ctx, dev);
+	    sycl::queue tmp_queue(ctx, dev);
             ccl_streams.push_back(ccl::create_stream(tmp_queue));
         }
     }
 
     // Non-blocking allreduce
     void Iallreduce(const void* sendbuf, void* recvbuf, size_t count, int index) override {
-        events[index] = ccl::allreduce(sendbuf, recvbuf, count, ONECCL_FLOAT_TYPE, ccl::reduction::sum, comm, ccl_streams[index]);
+	//CCUTILS_MPI_INIT
+	//double start_time = MPI_Wtime();
+        events[index] = ccl::allreduce(sendbuf, recvbuf, count, ONECCL_FLOAT_TYPE, ccl::reduction::sum, comm, ccl_streams[index], allreduce_attr);
+    	//CCUTILS_MPI_PRINT_ONCE(std::cout << MPI_Wtime() - start_time << "\n";)
     }
 
     // Blocking allreduce
     void Allreduce(const void* sendbuf, void* recvbuf, size_t count) override {
-        ccl::allreduce(sendbuf, recvbuf, count, ONECCL_FLOAT_TYPE, ccl::reduction::sum, comm, ccl_streams[0]).wait();
+        ccl::allreduce(sendbuf, recvbuf, count, ONECCL_FLOAT_TYPE, ccl::reduction::sum, comm, ccl_streams[0], allreduce_attr).wait();
+    
     }
 
     void Alltoall(const void* sendbuf, size_t sendcount,
                     void* recvbuf, size_t recvcount) override {
-        ccl::alltoall(sendbuf, recvbuf, sendcount, ONECCL_FLOAT_TYPE, comm, ccl_streams[0]).wait();
+        ccl::alltoall(sendbuf, recvbuf, sendcount, ONECCL_FLOAT_TYPE, comm, ccl_streams[0], alltoall_attr).wait();
     }
 
     void WaitAll(size_t num_waits) override {
         for (auto& e : events) e.wait();
     }
 
-    void Wait(size_t index) override {
+    void Wait(int index) override {
         if (index < events.size()) events[index].wait();
     }
 
     void Barrier() override {
         // oneCCL barrier via allreduce of zero bytes
-        ccl::barrier(comm, ccl_streams[0]).wait();
+        ccl::barrier(comm, ccl_streams[0], barrier_attr).wait();
     }
 
     void Allgather(const void* sendbuf, size_t sendcount, void* recvbuf, size_t recvcount) override {
 	    std::vector<size_t> recvcounts(comm.size(), sendcount);
-	ccl::allgatherv(sendbuf, sendcount, recvbuf, recvcounts, ONECCL_FLOAT_TYPE, comm, ccl_streams[0]).wait();
+	ccl::allgatherv(sendbuf, sendcount, recvbuf, recvcounts, ONECCL_FLOAT_TYPE, comm, ccl_streams[0], allgather_attr).wait();
     }
 
     void Iallgather(const void* sendbuf, size_t sendcount, void* recvbuf, size_t recvcount, int index) override { 
         std::vector<size_t> recvcounts(comm.size(), sendcount);
-        events[index] = ccl::allgatherv(sendbuf, sendcount, recvbuf, recvcounts, ONECCL_FLOAT_TYPE, comm, ccl_streams[index]);
+        events[index] = ccl::allgatherv(sendbuf, sendcount, recvbuf, recvcounts, ONECCL_FLOAT_TYPE, comm, ccl_streams[index], allgather_attr);
     }
 	
 
     void Reduce_Scatter_block(const void* sendbuf, void* recvbuf, size_t recvcount) override {
-        ccl::reduce_scatter(sendbuf, recvbuf, recvcount, ONECCL_FLOAT_TYPE, ccl::reduction::sum, comm, ccl_streams[0]).wait();
+        ccl::reduce_scatter(sendbuf, recvbuf, recvcount, ONECCL_FLOAT_TYPE, ccl::reduction::sum, comm, ccl_streams[0], reduce_scatter_attr).wait();
     }
 
     void send(const void* buf, size_t count, int dest) override {
@@ -335,6 +348,11 @@ public:
 
 private:
     ccl::communicator comm;
+    ccl::allreduce_attr      allreduce_attr;
+    ccl::allgatherv_attr     allgather_attr;
+    ccl::reduce_scatter_attr reduce_scatter_attr;
+    ccl::alltoall_attr       alltoall_attr;
+    ccl::barrier_attr        barrier_attr;
     int num_streams;
     std::vector<ccl::stream> ccl_streams;
     std::vector<ccl::event> events;
@@ -368,6 +386,25 @@ namespace DeviceManager {
     }
 }
 #endif
+
+void check_ptr(void* ptr, sycl::context& ctx) {
+    sycl::usm::alloc type = sycl::get_pointer_type(ptr, ctx);
+
+    switch (type) {
+        case sycl::usm::alloc::host:
+            std::cout << "Host USM allocation\n";
+            break;
+        case sycl::usm::alloc::device:
+            std::cout << "Device USM allocation\n";
+            break;
+        case sycl::usm::alloc::shared:
+            std::cout << "Shared USM allocation\n";
+            break;
+        case sycl::usm::alloc::unknown:
+            std::cout << "Not a USM pointer or from a different context\n";
+            break;
+    }
+}
 
 /**
 * @class Tensor
