@@ -104,7 +104,8 @@ int run_data_pipe_parallel(
     Tensor<_FLOAT, device>* bwd_send_buff,
     Tensor<_FLOAT, device>* bwd_recv_buff,
     ProxyCommunicator* dp_communicator,
-    ProxyCommunicator* pp_communicator){
+    ProxyCommunicator* pp_communicator,
+    MPI_Comm pp_communicator_mpi){
     // GPipe Pipeline Schedule
     // Forward pass for all micro-batches
     CCUTILS_MPI_INIT
@@ -134,7 +135,7 @@ int run_data_pipe_parallel(
             CCUTILS_MPI_TIMER_STOP(pp_comm)
         }
     }
-    
+    MPI_Barrier(pp_communicator_mpi);
     // Backward pass for all micro-batches
     for(int i = 0; i < num_microbatches; i++){
         if(stage_id == 0){
@@ -392,7 +393,7 @@ int main(int argc, char* argv[]) {
                               fwd_rt_per_microbatch, bwd_rt_per_microbatch,
                               grad_ptr, sum_grad_ptr, dp_allreduce_size,
                               fwd_send_buff, fwd_recv_buff, bwd_send_buff, bwd_recv_buff,
-                              dp_communicator, pp_communicator);
+                              dp_communicator, pp_communicator, pp_comm);
         float end_time = MPI_Wtime();
         warmup_times.push_back(end_time - start_time);
     }
@@ -424,7 +425,7 @@ int main(int argc, char* argv[]) {
                               fwd_rt_per_microbatch, bwd_rt_per_microbatch,
                               grad_ptr, sum_grad_ptr, dp_allreduce_size,
                               fwd_send_buff, fwd_recv_buff, bwd_send_buff, bwd_recv_buff,
-                              dp_communicator, pp_communicator);
+                              dp_communicator, pp_communicator, pp_comm);
         CCUTILS_MPI_TIMER_STOP(runtime)
         
         // Inside the loop, replace the move with:
