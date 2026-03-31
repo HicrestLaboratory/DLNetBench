@@ -135,7 +135,7 @@ int run_data_pipe_parallel(
             CCUTILS_MPI_TIMER_STOP(pp_comm)
         }
     }
-    MPI_Barrier(pp_communicator_mpi);
+
     // Backward pass for all micro-batches
     for(int i = 0; i < num_microbatches; i++){
         if(stage_id == 0){
