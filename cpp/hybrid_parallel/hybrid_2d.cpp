@@ -409,7 +409,7 @@ int main(int argc, char* argv[]) {
                             fwd_rt_per_microbatch, bwd_rt_per_microbatch,
                             grad_ptr, sum_grad_ptr, dp_allreduce_size,
                             fwd_send_buff, fwd_recv_buff, bwd_send_buff, bwd_recv_buff,
-                            dp_communicator, pp_communicator);
+                            dp_communicator, pp_communicator, pp_comm);
     }  
     #else
     // clear timer vectors before actual runs
