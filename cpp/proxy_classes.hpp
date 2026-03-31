@@ -387,25 +387,6 @@ namespace DeviceManager {
 }
 #endif
 
-void check_ptr(void* ptr, sycl::context& ctx) {
-    sycl::usm::alloc type = sycl::get_pointer_type(ptr, ctx);
-
-    switch (type) {
-        case sycl::usm::alloc::host:
-            std::cout << "Host USM allocation\n";
-            break;
-        case sycl::usm::alloc::device:
-            std::cout << "Device USM allocation\n";
-            break;
-        case sycl::usm::alloc::shared:
-            std::cout << "Shared USM allocation\n";
-            break;
-        case sycl::usm::alloc::unknown:
-            std::cout << "Not a USM pointer or from a different context\n";
-            break;
-    }
-}
-
 /**
 * @class Tensor
 * @brief A lightweight wrapper for a contiguous buffer of data that can reside on CPU or GPU.
