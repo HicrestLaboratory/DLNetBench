@@ -44,9 +44,9 @@ GPU_SPECS = {
     },
     "MI250X": {
         "peak_flops": {
-            "bfloat16": 0.383e15,   # 0.383 PFLOPS (BF16 Matrix Core, Dense)
+            "bfloat16": 0.192e15,   # 0.192 PFLOPS (BF16 Matrix Core, Dense)
         },
-        "bandwidth": 3.2e12,        # 3.2 TB/s (HBM2e)
+        "bandwidth": 1.6e12,        # 1.6 TB/s (HBM2e)
     },
     "B300": {
         "peak_flops": {

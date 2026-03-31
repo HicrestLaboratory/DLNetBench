@@ -229,28 +229,28 @@
     "MI250X": {
       "bfloat16": {
         "16": {
-          "forward_time_us": 68629.76,
-          "backward_time_us": 137259.53,
-          "ffn_forward_time_us": 40370.45,
-          "ffn_backward_time_us": 80740.9
+          "forward_time_us": 136902.08,
+          "backward_time_us": 273804.17,
+          "ffn_forward_time_us": 80530.64,
+          "ffn_backward_time_us": 161061.27
         },
         "32": {
-          "forward_time_us": 137259.53,
-          "backward_time_us": 274519.06,
-          "ffn_forward_time_us": 80740.9,
-          "ffn_backward_time_us": 161481.8
+          "forward_time_us": 273804.17,
+          "backward_time_us": 547608.33,
+          "ffn_forward_time_us": 161061.27,
+          "ffn_backward_time_us": 322122.55
         },
         "64": {
-          "forward_time_us": 274519.06,
-          "backward_time_us": 549038.12,
-          "ffn_forward_time_us": 161481.8,
-          "ffn_backward_time_us": 322963.6
+          "forward_time_us": 547608.33,
+          "backward_time_us": 1095216.66,
+          "ffn_forward_time_us": 322122.55,
+          "ffn_backward_time_us": 644245.09
         },
         "128": {
-          "forward_time_us": 549038.12,
-          "backward_time_us": 1098076.23,
-          "ffn_forward_time_us": 322963.6,
-          "ffn_backward_time_us": 645927.2
+          "forward_time_us": 1095216.66,
+          "backward_time_us": 2190433.32,
+          "ffn_forward_time_us": 644245.09,
+          "ffn_backward_time_us": 1288490.19
         }
       }
     },
