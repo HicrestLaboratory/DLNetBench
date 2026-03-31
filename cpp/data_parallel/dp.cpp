@@ -68,6 +68,7 @@ Proxy_CommType world_comm;
 
 CCUTILS_MPI_TIMER_DEF(runtime)
 CCUTILS_MPI_TIMER_DEF(barrier)
+CCUTILS_MPI_TIMER_DEF(comm_time)
 
 /**
  * @brief Simulates one iteration of data-parallel (using bucketing approach) training for a Transformer model.
@@ -95,6 +96,8 @@ int run_data_parallel(Tensor<_FLOAT, device>** grad_ptrs, Tensor<_FLOAT, device>
 
     int index, flag;
     for(int i=0; i<num_buckets; i++){
+        if(i == 0)
+            CCUTILS_MPI_TIMER_START(comm_time) 
         usleep(bwd_rt_per_B); //compute backward of a bucket 
         communicator->Iallreduce(grad_ptrs[i]->data, sum_grad_ptrs[i]->data, params_per_bucket[i], i); //start all-reduce for the bucket
     }
@@ -102,6 +105,7 @@ int run_data_parallel(Tensor<_FLOAT, device>** grad_ptrs, Tensor<_FLOAT, device>
     CCUTILS_MPI_TIMER_START(barrier)
     communicator->WaitAll(num_buckets); //wait for all all-reduce to complete
     CCUTILS_MPI_TIMER_STOP(barrier) 
+    CCUTILS_MPI_TIMER_STOP(comm_time) 
     return 0;
 }
 
@@ -324,6 +328,7 @@ int main(int argc, char* argv[]) {
     //erase warm-up elemements
     CCUTILS_SECTION_JSON_PUT(dp, "runtimes", __timer_vals_runtime);
     CCUTILS_SECTION_JSON_PUT(dp, "barrier_time", __timer_vals_barrier);
+    CCUTILS_SECTION_JSON_PUT(dp, "comm_time", __timer_vals_comm_time);
     // compute throughput per runtime (samples/s)
     std::vector<float> throughputs;
     for(float rt : __timer_vals_runtime){
