@@ -13,6 +13,12 @@ GPU_SPECS = {
         },
         "bandwidth": 2.0e12,        # 2.0 TB/s (A100 SXM 80GB HBM2e)
     },
+    "INTEL1550": {
+        "peak_flops": {
+            "bfloat16": 0.419e15,   # 419.4 TFLOPS (BF16 XMX Engine, per Tile)
+        },
+        "bandwidth": 1.64e12,       # 1.64 TB/s (64GB HBM2e, per Tile)
+    },
     "H200": {
         "peak_flops": {
             "bfloat16": 0.989e15,   # 989 TFLOPS (BF16 Tensor Core, Dense)
