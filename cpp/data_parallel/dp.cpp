@@ -87,7 +87,7 @@ CCUTILS_MPI_TIMER_DEF(comm_time)
  */
 int run_data_parallel(Tensor<_FLOAT, device>** grad_ptrs, Tensor<_FLOAT, device>** sum_grad_ptrs, 
                     int num_buckets, uint64_t* params_per_bucket,
-                    uint64_t fwd_rt_whole_model, float bwd_rt_per_B, ProxyCommunicator* communicator) {
+                    uint32_t fwd_rt_whole_model, uint32_t bwd_rt_per_B, ProxyCommunicator* communicator) {
     
 
     //forward compute
@@ -171,8 +171,8 @@ int main(int argc, char* argv[]) {
     uint64_t warmup = args.warmup;
 
     std::map<std::string, uint64_t> model_stats = get_model_stats(file_path, args.gpu, args.dtype, (uint64_t)args.batch_size); // get model stats from file
-    uint64_t fwd_rt_whole_model = model_stats["avgForwardTime"]; // in us
-    float bwd_rt_per_B = (model_stats["avgBackwardTime"]) / num_buckets; // in us
+    uint32_t fwd_rt_whole_model = model_stats["avgForwardTime"]; // in us
+    uint32_t bwd_rt_per_B = (model_stats["avgBackwardTime"]) / num_buckets; // in us
     uint local_batch_size = model_stats["batchSize"];
     uint64_t total_model_size = model_stats["modelSize"]; // number of parameters
     

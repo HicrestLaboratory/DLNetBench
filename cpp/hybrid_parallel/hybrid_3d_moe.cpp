@@ -107,10 +107,10 @@ int run_data_pipe_expert_parallel(
     int num_stage,
     int layers_per_stage,
     uint64_t pipe_msg_size,
-    uint64_t attn_fwd_per_microbatch,
-    uint64_t ffn_fwd_per_microbatch,
-    uint64_t attn_bwd_per_microbatch,
-    uint64_t ffn_bwd_per_microbatch,
+    uint32_t attn_fwd_per_microbatch,
+    uint32_t ffn_fwd_per_microbatch,
+    uint32_t attn_bwd_per_microbatch,
+    uint32_t ffn_bwd_per_microbatch,
     Tensor<_FLOAT, device>* grad_ptr,
     Tensor<_FLOAT, device>* sum_grad_ptr,
     uint64_t dp_allreduce_size,
@@ -127,10 +127,10 @@ int run_data_pipe_expert_parallel(
     ProxyCommunicator* pp_communicator,
     ProxyCommunicator* ep_communicator){
 
-    uint64_t attn_fwd_rt = attn_fwd_per_microbatch / layers_per_stage;
-    uint64_t mlp_fwd_rt = ffn_fwd_per_microbatch / layers_per_stage;
-    uint64_t attn_bwd_rt = attn_bwd_per_microbatch / layers_per_stage;
-    uint64_t mlp_bwd_rt = ffn_bwd_per_microbatch / layers_per_stage;
+    uint32_t attn_fwd_rt = attn_fwd_per_microbatch / layers_per_stage;
+    uint32_t mlp_fwd_rt = ffn_fwd_per_microbatch / layers_per_stage;
+    uint32_t attn_bwd_rt = attn_bwd_per_microbatch / layers_per_stage;
+    uint32_t mlp_bwd_rt = ffn_bwd_per_microbatch / layers_per_stage;
 
     // GPipe Pipeline Schedule
     // Forward pass for all micro-batches
@@ -325,12 +325,12 @@ int main(int argc, char* argv[]) {
     std::map<std::string, uint64_t> model_stats = get_model_stats(file_path, args.gpu, args.dtype, args.batch_size);
     
     // Get model stats from file
-    uint64_t fwd_rt_whole_model = model_stats["avgForwardTime"]; // in us
-    uint64_t bwd_rt_whole_model = model_stats["avgBackwardTime"]; // in us
-    uint64_t ffn_fwd_rt_whole_model = model_stats["ffnForwardTime"]; // in us
-    uint64_t ffn_bwd_rt_whole_model = model_stats["ffnBackwardTime"]; // in us
-    uint64_t attn_fwd_whole_model = fwd_rt_whole_model - ffn_fwd_rt_whole_model;
-    uint64_t attn_bwd_whole_model = bwd_rt_whole_model - ffn_bwd_rt_whole_model;
+    uint32_t fwd_rt_whole_model = model_stats["avgForwardTime"]; // in us
+    uint32_t bwd_rt_whole_model = model_stats["avgBackwardTime"]; // in us
+    uint32_t ffn_fwd_rt_whole_model = model_stats["ffnForwardTime"]; // in us
+    uint32_t ffn_bwd_rt_whole_model = model_stats["ffnBackwardTime"]; // in us
+    uint32_t attn_fwd_whole_model = fwd_rt_whole_model - ffn_fwd_rt_whole_model;
+    uint32_t attn_bwd_whole_model = bwd_rt_whole_model - ffn_bwd_rt_whole_model;
     uint local_batch_size = model_stats["batchSize"];
     uint64_t total_model_size = model_stats["modelSize"]; // number of parameters
     uint64_t sequence_length = model_stats["sequenceLength"]; // sequence length
@@ -388,15 +388,15 @@ int main(int argc, char* argv[]) {
  
 
     // Compute per-stage and per-microbatch runtimes
-    uint64_t attn_fwd_per_stage = attn_fwd_whole_model / num_stage;
-    uint64_t ffn_fwd_per_stage = ffn_fwd_rt_whole_model / num_stage;
-    uint64_t attn_bwd_per_stage = attn_bwd_whole_model / num_stage;
-    uint64_t ffn_bwd_per_stage = ffn_bwd_rt_whole_model / num_stage;
+    uint32_t attn_fwd_per_stage = attn_fwd_whole_model / num_stage;
+    uint32_t ffn_fwd_per_stage = ffn_fwd_rt_whole_model / num_stage;
+    uint32_t attn_bwd_per_stage = attn_bwd_whole_model / num_stage;
+    uint32_t ffn_bwd_per_stage = ffn_bwd_rt_whole_model / num_stage;
     
-    uint64_t attn_fwd_per_microbatch = attn_fwd_per_stage / num_microbatches;
-    uint64_t ffn_fwd_per_microbatch = ffn_fwd_per_stage / num_microbatches;
-    uint64_t attn_bwd_per_microbatch = attn_bwd_per_stage / num_microbatches;
-    uint64_t ffn_bwd_per_microbatch = ffn_bwd_per_stage / num_microbatches;
+    uint32_t attn_fwd_per_microbatch = attn_fwd_per_stage / num_microbatches;
+    uint32_t ffn_fwd_per_microbatch = ffn_fwd_per_stage / num_microbatches;
+    uint32_t attn_bwd_per_microbatch = attn_bwd_per_stage / num_microbatches;
+    uint32_t ffn_bwd_per_microbatch = ffn_bwd_per_stage / num_microbatches;
     
     // Pipeline message size: activations for batch_size/num_microbatches samples
     uint64_t samples_per_microbatch = local_batch_size / num_microbatches;

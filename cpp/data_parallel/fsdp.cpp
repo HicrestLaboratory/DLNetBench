@@ -74,8 +74,8 @@ CCUTILS_MPI_TIMER_DEF(runtime)
 void run_fsdp(Tensor<_FLOAT, device>** shard_params,
               Tensor<_FLOAT, device>* layer_params,
               Tensor<_FLOAT, device>** allreduce_params,
-              float fwd_rt_whole_unit,
-              float bwd_rt_whole_unit,
+              uint32_t fwd_rt_whole_unit,
+              uint32_t bwd_rt_whole_unit,
               uint num_units,
               uint sharding_factor,
               uint64_t* max_params_per_shard,
@@ -247,8 +247,8 @@ int main(int argc, char* argv[]) {
 
     uint64_t total_model_size = model_stats["modelSize"];
     uint local_batch_size = model_stats["batchSize"];
-    uint64_t fwd_rt_whole_model = model_stats["avgForwardTime"];
-    uint64_t bwd_rt_whole_model = model_stats["avgBackwardTime"];
+    uint32_t fwd_rt_whole_model = model_stats["avgForwardTime"];
+    uint32_t bwd_rt_whole_model = model_stats["avgBackwardTime"];
 
     // Compute per-unit parameter sizes
     uint64_t base_params_per_unit = total_model_size / num_units;
@@ -362,8 +362,8 @@ int main(int argc, char* argv[]) {
             allreduce_params[u] = new Tensor<_FLOAT, device>(max_params_per_shard[u]);
     }
 
-    float fwd_rt_whole_unit = (float)fwd_rt_whole_model / num_units;
-    float bwd_rt_whole_unit = (float)bwd_rt_whole_model / num_units;
+    uint32_t fwd_rt_whole_unit = fwd_rt_whole_model / num_units;
+    uint32_t bwd_rt_whole_unit = bwd_rt_whole_model / num_units;
 
     std::vector<float> warmup_times;
     for(int i = 0; i < warmup; i++){
