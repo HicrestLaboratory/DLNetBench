@@ -219,10 +219,10 @@ std::map<std::string, uint64_t> get_model_stats(std::string filename,
     model_stats["embeddedDim"]       = j["embedded_dim"].get<uint64_t>();
     model_stats["batchSize"]         = batch_size;
     model_stats["experts"]           = j["ffn"]["num_experts"].get<uint64_t>();
-    model_stats["avgForwardTime"]    = (uint64_t)timing["forward_time_us"].get<double>();
-    model_stats["avgBackwardTime"]   = (uint64_t)timing["backward_time_us"].get<double>();
-    model_stats["ffnForwardTime"]    = (uint64_t)timing["ffn_forward_time_us"].get<double>();
-    model_stats["ffnBackwardTime"]   = (uint64_t)timing["ffn_backward_time_us"].get<double>();
+    model_stats["avgForwardTime"]    = timing["forward_time_us"].get<uint64_t>();
+    model_stats["avgBackwardTime"]   = timing["backward_time_us"].get<uint64_t>();
+    model_stats["ffnForwardTime"]    = timing["ffn_forward_time_us"].get<uint64_t>();
+    model_stats["ffnBackwardTime"]   = timing["ffn_backward_time_us"].get<uint64_t>();
 
     return model_stats;
 }

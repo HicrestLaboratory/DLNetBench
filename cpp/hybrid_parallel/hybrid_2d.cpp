@@ -94,8 +94,8 @@ int run_data_pipe_parallel(
     int stage_id, 
     int num_stage,
     uint64_t pipe_msg_size,
-    uint32_t fwd_rt,
-    uint32_t bwd_rt,
+    useconds_t fwd_rt,
+    useconds_t bwd_rt,
     Tensor<_FLOAT, device>* grad_ptr,
     Tensor<_FLOAT, device>* sum_grad_ptr,
     uint64_t dp_allreduce_size,
@@ -239,8 +239,8 @@ int main(int argc, char* argv[]) {
     
     std::map<std::string, uint64_t> model_stats = get_model_stats(file_path, args.gpu, args.dtype, (uint64_t)args.batch_size);    
     // Get model stats from file
-    uint32_t fwd_rt_whole_model = model_stats["avgForwardTime"]; // in us
-    uint32_t bwd_rt_whole_model = model_stats["avgBackwardTime"]; // in us
+    useconds_t fwd_rt_whole_model = model_stats["avgForwardTime"]; // in us
+    useconds_t bwd_rt_whole_model = model_stats["avgBackwardTime"]; // in us
     uint local_batch_size = model_stats["batchSize"];
     uint64_t total_model_size = model_stats["modelSize"]; // number of parameters
     uint sequence_length = model_stats["sequenceLength"]; // sequence length
@@ -248,13 +248,13 @@ int main(int argc, char* argv[]) {
 
     // Compute per-stage and per-microbatch runtimes
     // fwd_rt_whole_model and bwd_rt_whole_model are already for the full batch_size
-    uint32_t fwd_rt_per_stage = fwd_rt_whole_model / num_stage;
-    uint32_t bwd_rt_per_stage = bwd_rt_whole_model / num_stage;
+    useconds_t fwd_rt_per_stage = fwd_rt_whole_model / num_stage;
+    useconds_t bwd_rt_per_stage = bwd_rt_whole_model / num_stage;
     
     // Since we process the full batch across all microbatches, runtime per microbatch
     // is simply the stage runtime divided by number of microbatches
-    uint32_t fwd_rt_per_microbatch = fwd_rt_per_stage / num_microbatches;
-    uint32_t bwd_rt_per_microbatch = bwd_rt_per_stage / num_microbatches;
+    useconds_t fwd_rt_per_microbatch = fwd_rt_per_stage / num_microbatches;
+    useconds_t bwd_rt_per_microbatch = bwd_rt_per_stage / num_microbatches;
     
     // Pipeline message size: activations for batch_size/num_microbatches samples
     // Each microbatch processes (local_batch_size / num_microbatches) samples
