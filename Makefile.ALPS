@@ -1,20 +1,19 @@
 # -------------------------
 # Makefile.ALPS
-# Alps (CSCS) — nvcc, Cray MPI
+# Alps (CSCS) - Clariden - nvcc, Cray MPI
 # -------------------------
 
 # IMPORTANT: UENV
-# uenv start --view=modules prgenv-gnu-openmpi/25.12:v1
-# ml gcc/14.3.0 cuda/12.9.1 nccl/2.28.9-1 openmpi/5.0.9 python/3.14.0 libfabric/2.3.1 aws-ofi-nccl/1.17.1
+# uenv start --view=default prgenv-gnu/26.3:v1
 
 CXX := nvcc
 CXXFLAGS := -arch=sm_90
 
 # -- System paths (CUDA auto-detected from nvcc; NCCL_HOME from environment) --
 # Override if auto-detection fails:
-CUDA_HOME := /user-environment/linux-neoverse_v2/cuda-12.9.1-gbxd4g7cdadbxiev6ynbxgjlt5cs5h4s
-NCCL_HOME := /user-environment/linux-neoverse_v2/nccl-2.28.9-1-c6miglsp7xn7ls6eohm5xfd7aiueydnl
-MPI_HOME := /user-environment/linux-neoverse_v2/openmpi-5.0.9-emqmwdrzfeh265pelxc3h3leqozwhsn5
+CUDA_HOME := /user-environment/env/default
+NCCL_HOME := /user-environment/env/default
+MPI_HOME := /user-environment/env/default
 
 # -------------------------------------------------------
 # Config: nccl
